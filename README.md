@@ -121,4 +121,4 @@ MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
-This implementation was developed with assistance from GitHub Copilot during the implementation process.
+This implementation was developed with assistance from GitHub Copilot.

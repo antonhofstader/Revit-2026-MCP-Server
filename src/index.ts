@@ -480,7 +480,6 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Revit 2026 MCP Server running on stdio");
 }
 
 main().catch((error) => {
