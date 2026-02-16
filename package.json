@@ -1,0 +1,31 @@
+{
+  "name": "revit-2026-mcp-server",
+  "version": "1.0.0",
+  "description": "A Model Context Protocol (MCP) server implementation for Autodesk Revit 2026, enabling AI assistants like Claude to interact with Revit projects through a standardized interface.",
+  "main": "build/index.js",
+  "type": "module",
+  "bin": {
+    "revit-mcp-server": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "start": "node build/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "revit",
+    "autodesk",
+    "bim",
+    "model-context-protocol"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
