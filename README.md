@@ -87,9 +87,9 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 {
   "mcpServers": {
     "revit": {
-      "command": "python",
+      "command": "C:\\Users\\username\\Downloads\\Revit2026-MCP\\venv\\Scripts\\python.exe",
       "args": [
-        "C:\\path\\to\\revit-mcp-server\\revit_mcp_server.py"
+        "C:\\Users\\username\\Downloads\\Revit2026-MCP\\revit_mcp_server.py"
       ]
     }
   }
