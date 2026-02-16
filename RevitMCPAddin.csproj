@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <OutputType>Library</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <Deterministic>true</Deterministic>
+    
+    <!-- Assembly Information -->
+    <AssemblyName>RevitMCPAddin</AssemblyName>
+    <RootNamespace>RevitMCPAddin</RootNamespace>
+    <Authors>MCP</Authors>
+    <Company>MCP</Company>
+    <Product>Revit MCP Server</Product>
+    <Description>Model Context Protocol Server for Revit 2026 with view management and BIM automation</Description>
+    <Copyright>Copyright © 2026</Copyright>
+    <Version>0.2.0</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <DefineConstants>TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Revit API References -->
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2026\RevitAPIUI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NuGet Package References -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copy .addin file to output -->
+    <None Update="RevitMCPAddin.addin">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Post-build event to copy files to Revit addins folder -->
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+    <!-- Try to copy to the user's Revit Addins folder; do not fail the build if this step fails. -->
+    <Exec Command="if not exist &quot;%APPDATA%\Autodesk\Revit\Addins\2026&quot; mkdir &quot;%APPDATA%\Autodesk\Revit\Addins\2026&quot;" ContinueOnError="WarnAndContinue" />
+    <Exec Command="copy /Y &quot;$(TargetPath)&quot; &quot;%APPDATA%\Autodesk\Revit\Addins\2026\&quot;" ContinueOnError="WarnAndContinue" />
+    <Exec Command="copy /Y &quot;$(ProjectDir)RevitMCPAddin.addin&quot; &quot;%APPDATA%\Autodesk\Revit\Addins\2026\&quot;" ContinueOnError="WarnAndContinue" />
+  </Target>
+
+</Project>
+
