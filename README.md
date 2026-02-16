@@ -1,7 +1,7 @@
 
 # This is personal research and is not an official product from AUTODESK.
 
-# Proof of concepts of Revit 2026 MCP Server with external agents
+# Proof of concepts of personal Revit 2026 MCP Server with external agents
 A Model Context Protocol (MCP) server implementation for Autodesk Revit 2026, enabling AI assistants like Claude to interact with Revit projects through a standardized interface.
 
 ## Overview
