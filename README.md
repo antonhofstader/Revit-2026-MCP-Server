@@ -60,6 +60,10 @@ Add this configuration to your Claude Desktop config file:
 **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
+See `claude_desktop_config.json` in this repository for a template. You'll need to replace `/absolute/path/to/Revit-2026-MCP-Server/` with the actual path to your installation.
+
+Example configuration:
+
 ```json
 {
   "mcpServers": {

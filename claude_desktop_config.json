@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "revit-2026": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/Revit-2026-MCP-Server/build/index.js"
+      ]
+    }
+  }
+}
