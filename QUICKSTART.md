@@ -7,7 +7,7 @@ This guide will help you get the Revit MCP Server up and running quickly.
 - [ ] Windows 10/11
 - [ ] Python 3.10 or higher installed
 - [ ] Autodesk Revit 2026 installed
-- [ ] Visual Studio 2019 or later (for building C# add-in)
+- [ ] Visual Studio 2019 or later (for building C# add-in, but it has been added to the folder structure)
 - [ ] Claude Desktop app installed
 
 ## Installation Steps
