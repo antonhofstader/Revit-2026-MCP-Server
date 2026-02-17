@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "revit": {
+      "command": "C:\\Users\\username\\Downloads\\Revit2026-MCP\\venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\Users\\username\\Downloads\\Revit2026-MCP\\revit_mcp_server.py"
+      ]
+    }
+  }
+}
