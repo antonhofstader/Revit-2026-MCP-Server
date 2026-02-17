@@ -43,21 +43,21 @@ In Visual Studio:
 ### 3. Configure Claude Desktop
 
 Edit `%APPDATA%\Claude\claude_desktop_config.json`:
-
+Add to the config JSON file a command and an argument.
 ```json
 {
   "mcpServers": {
     "revit": {
-      "command": "python",
+      "command": ""C:\\path\\to\\Revit2026-MCP\\venv\\Scripts\\python.exe",",
       "args": [
-        "C:\\path\\to\\revit-mcp-server\\revit_mcp_server.py"
+        "C:\\path\\to\\Revit2026-MCP\\revit_mcp_server.py"
       ]
     }
   }
 }
 ```
 
-**Important:** Replace `C:\\path\\to\\revit-mcp-server\\` with the actual path to your installation.
+**Important:** Replace `C:\\path\\to\\Revit2026-MCP\\` with the actual path to your installation.
 
 ### 4. Start Everything
 
