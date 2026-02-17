@@ -28,7 +28,7 @@ This will:
 - Copy add-in files to Revit folder
 - Create example configuration
 
-### 2. Build the Revit Add-in
+### 2. Build the Revit Add-in( Only in case dll is different or has not been copied to the Addins folder)
 
 ```bash
 # Open the C# project in Visual Studio
