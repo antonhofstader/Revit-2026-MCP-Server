@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Reflection;
+using System.Drawing;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json.Linq;
 using Autodesk.Revit.DB;
@@ -45,6 +46,10 @@ namespace RevitMCPAddin
 
                 switch (_currentRequest.Command)
                 {
+                    case "detect_document_type":
+                        result = DetectDocumentType(doc);
+                        break;
+
                     case "get_elements_by_category":
                         result = GetElementsByCategory(doc, _currentRequest.Parameters);
                         break;
@@ -63,6 +68,10 @@ namespace RevitMCPAddin
 
                     case "export_to_ifc":
                         result = ExportToIFC(doc, _currentRequest.Parameters);
+                        break;
+
+                    case "export_image":
+                        result = ExportImage(doc, _currentRequest.Parameters);
                         break;
 
                     case "query_elements":
@@ -86,7 +95,7 @@ namespace RevitMCPAddin
                         break;
 
                     case "get_selected_elements":
-                        result = GetSelectedElements(app);
+                        result = GetSelectedElements(app, _currentRequest.Parameters);
                         break;
 
                     case "create_grid_line":
@@ -191,6 +200,18 @@ namespace RevitMCPAddin
 
                     case "create_point_markup":
                         result = CreatePointMarkup(doc, _currentRequest.Parameters);
+                        break;
+
+                    case "create_detail_shapes":
+                        result = CreateDetailShapes(doc, _currentRequest.Parameters);
+                        break;
+
+                    case "create_model_shapes":
+                        result = CreateModelShapes(doc, _currentRequest.Parameters);
+                        break;
+
+                    case "create_symbolic_shapes":
+                        result = CreateSymbolicShapes(doc, _currentRequest.Parameters);
                         break;
 
                     case "rotate_elements":
@@ -323,6 +344,10 @@ namespace RevitMCPAddin
 
                     case "family_modeling_tool":
                         result = FamilyModelingTool(app, doc, _currentRequest.Parameters);
+                        break;
+
+                    case "load_and_place_family":
+                        result = LoadAndPlaceFamily(app, doc, _currentRequest.Parameters);
                         break;
 
                     case "connector_tool":
@@ -615,6 +640,214 @@ namespace RevitMCPAddin
         }
 
         /// <summary>
+        /// Export images from views using ImageExportOptions
+        /// </summary>
+        private object ExportImage(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                // Get output directory path
+                string outputPath = parameters.ContainsKey("output_path") ? parameters["output_path"]?.ToString() : "";
+                if (string.IsNullOrEmpty(outputPath))
+                {
+                    return new { success = false, error = "output_path is required" };
+                }
+
+                // Verify directory exists or create it
+                string directory = Path.GetDirectoryName(outputPath) ?? "";
+                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                {
+                    try
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+                    catch (Exception ex)
+                    {
+                        return new { success = false, error = $"Failed to create directory: {ex.Message}" };
+                    }
+                }
+
+                // Create ImageExportOptions
+                ImageExportOptions options = new ImageExportOptions();
+
+                // Set file type (default: PNG)
+                string fileType = parameters.ContainsKey("file_type") ? parameters["file_type"]?.ToString() : "PNG";
+                fileType = fileType ?? "PNG";
+                
+                switch (fileType.ToUpper())
+                {
+                    case "BMP":
+                        options.FilePath = outputPath.EndsWith(".bmp") ? outputPath.Substring(0, outputPath.Length - 4) : outputPath;
+                        options.ImageResolution = ImageResolution.DPI_72;
+                        options.HLRandWFViewsFileType = ImageFileType.BMP;
+                        options.ShadowViewsFileType = ImageFileType.BMP;
+                        break;
+                    case "JPG":
+                    case "JPEG":
+                    case "JPEGLOSSLESS":
+                        options.FilePath = outputPath.EndsWith(".jpg") || outputPath.EndsWith(".jpeg") ? 
+                            outputPath.Substring(0, outputPath.LastIndexOf('.')) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.JPEGLossless;
+                        options.ShadowViewsFileType = ImageFileType.JPEGLossless;
+                        break;
+                    case "JPEGMEDIUM":
+                        options.FilePath = outputPath.EndsWith(".jpg") || outputPath.EndsWith(".jpeg") ? 
+                            outputPath.Substring(0, outputPath.LastIndexOf('.')) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.JPEGMedium;
+                        options.ShadowViewsFileType = ImageFileType.JPEGMedium;
+                        break;
+                    case "JPEGSMALLEST":
+                        options.FilePath = outputPath.EndsWith(".jpg") || outputPath.EndsWith(".jpeg") ? 
+                            outputPath.Substring(0, outputPath.LastIndexOf('.')) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.JPEGSmallest;
+                        options.ShadowViewsFileType = ImageFileType.JPEGSmallest;
+                        break;
+                    case "PNG":
+                        options.FilePath = outputPath.EndsWith(".png") ? outputPath.Substring(0, outputPath.Length - 4) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.PNG;
+                        options.ShadowViewsFileType = ImageFileType.PNG;
+                        break;
+                    case "TARGA":
+                    case "TGA":
+                        options.FilePath = outputPath.EndsWith(".tga") ? outputPath.Substring(0, outputPath.Length - 4) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.TARGA;
+                        options.ShadowViewsFileType = ImageFileType.TARGA;
+                        break;
+                    case "TIFF":
+                    case "TIF":
+                        options.FilePath = outputPath.EndsWith(".tif") || outputPath.EndsWith(".tiff") ? 
+                            outputPath.Substring(0, outputPath.LastIndexOf('.')) : outputPath;
+                        options.HLRandWFViewsFileType = ImageFileType.TIFF;
+                        options.ShadowViewsFileType = ImageFileType.TIFF;
+                        break;
+                    default:
+                        return new { success = false, error = $"Unsupported file type: {fileType}. Supported: BMP, JPEGLossless, JPEGMedium, JPEGSmallest, PNG, TARGA, TIFF" };
+                }
+
+                // Set image resolution (DPI)
+                int dpi = parameters.ContainsKey("dpi") ? Convert.ToInt32(parameters["dpi"]) : 150;
+                switch (dpi)
+                {
+                    case 72:
+                        options.ImageResolution = ImageResolution.DPI_72;
+                        break;
+                    case 150:
+                        options.ImageResolution = ImageResolution.DPI_150;
+                        break;
+                    case 300:
+                        options.ImageResolution = ImageResolution.DPI_300;
+                        break;
+                    case 600:
+                        options.ImageResolution = ImageResolution.DPI_600;
+                        break;
+                    default:
+                        return new { success = false, error = $"Unsupported DPI: {dpi}. Supported: 72, 150, 300, 600" };
+                }
+
+                // Set zoom type - note: pixel size control requires different approach in Revit API
+                // For custom sizes, users should adjust zoom and resolution instead
+                {
+                    // Set zoom type
+                    string zoomType = parameters.ContainsKey("zoom_type") ? parameters["zoom_type"]?.ToString() : "FitToPage";
+                    zoomType = zoomType ?? "FitToPage";
+                    
+                    if (zoomType == "FitToPage")
+                    {
+                        options.ZoomType = ZoomFitType.FitToPage;
+                    }
+                    else if (zoomType == "Zoom")
+                    {
+                        options.ZoomType = ZoomFitType.Zoom;
+                        int zoom = parameters.ContainsKey("zoom") ? Convert.ToInt32(parameters["zoom"]) : 100;
+                        if (zoom < 1 || zoom > 400)
+                        {
+                            return new { success = false, error = "Zoom must be between 1 and 400" };
+                        }
+                        options.Zoom = zoom;
+                    }
+                    else
+                    {
+                        return new { success = false, error = $"Invalid zoom_type: {zoomType}. Use 'FitToPage' or 'Zoom'" };
+                    }
+                }
+
+                // Set fit direction
+                string fitDirection = parameters.ContainsKey("fit_direction") ? parameters["fit_direction"]?.ToString() : "Horizontal";
+                fitDirection = fitDirection ?? "Horizontal";
+                
+                if (fitDirection == "Horizontal")
+                {
+                    options.FitDirection = FitDirectionType.Horizontal;
+                }
+                else if (fitDirection == "Vertical")
+                {
+                    options.FitDirection = FitDirectionType.Vertical;
+                }
+                else
+                {
+                    return new { success = false, error = $"Invalid fit_direction: {fitDirection}. Use 'Horizontal' or 'Vertical'" };
+                }
+
+                // Set export range
+                string exportRange = parameters.ContainsKey("export_range") ? parameters["export_range"]?.ToString() : "CurrentView";
+                exportRange = exportRange ?? "CurrentView";
+                
+                if (exportRange == "CurrentView")
+                {
+                    options.ExportRange = ExportRange.SetOfViews;
+                    // Only export the active view
+                    var activeViewId = doc.ActiveView.Id;
+                    options.SetViewsAndSheets(new List<ElementId> { activeViewId });
+                }
+                else if (exportRange == "VisibleViews")
+                {
+                    options.ExportRange = ExportRange.VisibleRegionOfCurrentView;
+                }
+                else if (exportRange == "SpecificViews")
+                {
+                    // Get view IDs from parameters
+                    var viewIds = GetElementIdListFromParam(parameters, "view_ids");
+                    if (viewIds == null || viewIds.Count == 0)
+                    {
+                        return new { success = false, error = "view_ids required when export_range is 'SpecificViews'" };
+                    }
+                    
+                    options.ExportRange = ExportRange.SetOfViews;
+                    List<ElementId> elementIds = viewIds.Select(id => new ElementId(id)).ToList();
+                    options.SetViewsAndSheets(elementIds);
+                }
+                else
+                {
+                    return new { success = false, error = $"Invalid export_range: {exportRange}. Use 'CurrentView', 'VisibleViews', or 'SpecificViews'" };
+                }
+
+                // Should create website (default: false)
+                bool createWebsite = parameters.ContainsKey("create_website") ? Convert.ToBoolean(parameters["create_website"]) : false;
+                options.ShouldCreateWebSite = createWebsite;
+
+                // Perform the export
+                doc.ExportImage(options);
+
+                return new
+                {
+                    success = true,
+                    message = "Image exported successfully",
+                    output_path = options.FilePath,
+                    file_type = fileType,
+                    dpi = dpi,
+                    zoom_type = options.ZoomType.ToString(),
+                    fit_direction = options.FitDirection.ToString(),
+                    export_range = exportRange,
+                    create_website = createWebsite
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Export failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
         /// Query elements with filters
         /// </summary>
         private object QueryElements(Document doc, Dictionary<string, object> parameters)
@@ -678,48 +911,297 @@ namespace RevitMCPAddin
         /// </summary>
         private object SetActiveView(UIApplication app, Dictionary<string, object> parameters)
         {
-            if (!parameters.ContainsKey("view_type") || parameters["view_type"] == null)
+            try
             {
-                return new { success = false, error = "view_type parameter is required" };
+                Document doc = app.ActiveUIDocument.Document;
+                
+                // Check if we're in a family document
+                if (doc.IsFamilyDocument)
+                {
+                    return SetActiveFamilyView(app, doc, parameters);
+                }
+                else
+                {
+                    return SetActiveProjectView(app, doc, parameters);
+                }
             }
-
-            string viewTypeName = parameters["view_type"].ToString();
-            Document doc = app.ActiveUIDocument.Document;
-
-            // Parse the view type
-            ViewType viewType;
-            if (!Enum.TryParse(viewTypeName, out viewType))
+            catch (Exception ex)
             {
-                return new { success = false, error = $"Unknown view type: {viewTypeName}" };
+                return new { success = false, error = $"SetActiveView error: {ex.Message}" };
             }
+        }
 
-            // Find the first view of the specified type that can be shown
-            var view = new FilteredElementCollector(doc)
-                .OfClass(typeof(View))
-                .Cast<View>()
-                .FirstOrDefault(v => v.ViewType == viewType && v.CanBePrinted && !v.IsTemplate);
-
-            if (view == null)
+        /// <summary>
+        /// Set active view in project documents
+        /// </summary>
+        private object SetActiveProjectView(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
             {
-                return new { success = false, error = $"No view found for type: {viewTypeName}" };
+                if (!parameters.ContainsKey("view_type") || parameters["view_type"] == null)
+                {
+                    return new { success = false, error = "view_type parameter is required for project views" };
+                }
+
+                string viewTypeName = parameters["view_type"].ToString();
+
+                // Parse the view type
+                ViewType viewType;
+                if (!Enum.TryParse(viewTypeName, out viewType))
+                {
+                    return new { success = false, error = $"Unknown view type: {viewTypeName}" };
+                }
+
+                // Find the first view of the specified type that can be shown
+                var view = new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.ViewType == viewType && v.CanBePrinted && !v.IsTemplate);
+
+                if (view == null)
+                {
+                    return new { success = false, error = $"No view found for type: {viewTypeName}" };
+                }
+
+                // Request to change to the view
+                app.ActiveUIDocument.RequestViewChange(view);
+
+                return new
+                {
+                    success = true,
+                    viewId = GetElementIdInt(view.Id),
+                    viewName = view.Name,
+                    viewType = viewTypeName,
+                    environment = "project"
+                };
             }
-
-            // Request to change to the view
-            app.ActiveUIDocument.RequestViewChange(view);
-
-            return new
+            catch (Exception ex)
             {
-                success = true,
-                viewId = GetElementIdInt(view.Id),
-                viewName = view.Name,
-                viewType = viewTypeName
-            };
+                return new { success = false, error = $"SetActiveProjectView error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Set active view in family documents
+        /// </summary>
+        private object SetActiveFamilyView(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                string operation = parameters.ContainsKey("operation") ? parameters["operation"]?.ToString()?.ToLower() : "by_name";
+
+                switch (operation)
+                {
+                    case "by_name":
+                        return SwitchFamilyViewByName(app, doc, parameters);
+
+                    case "by_type":
+                        return SwitchFamilyViewByType(app, doc, parameters);
+
+                    case "reference_level":
+                        return SwitchToFamilyReferenceLevel(app, doc, parameters);
+
+                    case "list_views":
+                        return ListFamilyViews(doc);
+
+                    default:
+                        return new
+                        {
+                            success = false,
+                            error = $"Unknown family view operation: {operation}",
+                            available_operations = new[] { "by_name", "by_type", "reference_level", "list_views" }
+                        };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"SetActiveFamilyView error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Switch to a family view by name
+        /// </summary>
+        private object SwitchFamilyViewByName(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("view_name") || parameters["view_name"] == null)
+                {
+                    return new { success = false, error = "view_name parameter is required" };
+                }
+
+                string viewName = parameters["view_name"].ToString();
+
+                // Find view by name
+                var view = new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.Name.Equals(viewName, StringComparison.OrdinalIgnoreCase) && !v.IsTemplate);
+
+                if (view == null)
+                {
+                    return new { success = false, error = $"Family view '{viewName}' not found" };
+                }
+
+                // Switch to view
+                app.ActiveUIDocument.RequestViewChange(view);
+
+                return new
+                {
+                    success = true,
+                    viewId = GetElementIdInt(view.Id),
+                    viewName = view.Name,
+                    viewType = view.ViewType.ToString(),
+                    environment = "family",
+                    operation = "by_name"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"SwitchFamilyViewByName error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Switch to a family view by type (FloorPlan, Elevation, Section, 3D, etc.)
+        /// </summary>
+        private object SwitchFamilyViewByType(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("view_type") || parameters["view_type"] == null)
+                {
+                    return new { success = false, error = "view_type parameter is required" };
+                }
+
+                string viewTypeName = parameters["view_type"].ToString();
+
+                // Parse the view type
+                ViewType viewType;
+                if (!Enum.TryParse(viewTypeName, out viewType))
+                {
+                    return new { success = false, error = $"Unknown view type: {viewTypeName}" };
+                }
+
+                // Find first view of the specified type
+                var view = new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.ViewType == viewType && !v.IsTemplate);
+
+                if (view == null)
+                {
+                    return new { success = false, error = $"No family view found for type: {viewTypeName}" };
+                }
+
+                // Switch to view
+                app.ActiveUIDocument.RequestViewChange(view);
+
+                return new
+                {
+                    success = true,
+                    viewId = GetElementIdInt(view.Id),
+                    viewName = view.Name,
+                    viewType = viewTypeName,
+                    environment = "family",
+                    operation = "by_type"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"SwitchFamilyViewByType error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Switch to the Reference Level view in a family document (standard floor plan at Z=0)
+        /// </summary>
+        private object SwitchToFamilyReferenceLevel(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                // Look for "Reference Level" view - the standard family floor plan
+                var refLevelView = new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .FirstOrDefault(v => v.Name.Equals("Reference Level", StringComparison.OrdinalIgnoreCase) && !v.IsTemplate);
+
+                if (refLevelView == null)
+                {
+                    // Try to find any FloorPlan view
+                    refLevelView = new FilteredElementCollector(doc)
+                        .OfClass(typeof(View))
+                        .Cast<View>()
+                        .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan && !v.IsTemplate);
+                }
+
+                if (refLevelView == null)
+                {
+                    return new { success = false, error = "Reference Level view not found in family document" };
+                }
+
+                // Switch to the Reference Level view
+                app.ActiveUIDocument.RequestViewChange(refLevelView);
+
+                return new
+                {
+                    success = true,
+                    viewId = GetElementIdInt(refLevelView.Id),
+                    viewName = refLevelView.Name,
+                    viewType = refLevelView.ViewType.ToString(),
+                    environment = "family",
+                    operation = "reference_level",
+                    message = "Switched to Reference Level (family floor plan view)"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"SwitchToFamilyReferenceLevel error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// List all views available in a family document
+        /// </summary>
+        private object ListFamilyViews(Document doc)
+        {
+            try
+            {
+                var views = new FilteredElementCollector(doc)
+                    .OfClass(typeof(View))
+                    .Cast<View>()
+                    .Where(v => !v.IsTemplate)
+                    .OrderBy(v => v.Name)
+                    .ToList();
+
+                var viewList = views.Select(v => new
+                {
+                    id = GetElementIdInt(v.Id),
+                    name = v.Name,
+                    type = v.ViewType.ToString(),
+                    canBePrinted = v.CanBePrinted,
+                    isTemplate = v.IsTemplate
+                }).ToList();
+
+                return new
+                {
+                    success = true,
+                    environment = "family",
+                    viewCount = viewList.Count,
+                    views = viewList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"ListFamilyViews error: {ex.Message}" };
+            }
         }
 
         /// <summary>
         /// Get all currently selected elements in Revit
         /// </summary>
-        private object GetSelectedElements(UIApplication app)
+        private object GetSelectedElements(UIApplication app, Dictionary<string, object> parameters = null)
         {
             try
             {
@@ -730,6 +1212,38 @@ namespace RevitMCPAddin
                 }
 
                 Document doc = uidoc.Document;
+
+                // Determine if we're in a family document and which environment to use
+                bool isFamily = doc.IsFamilyDocument;
+                string operation = parameters?.ContainsKey("operation") == true 
+                    ? parameters["operation"]?.ToString()?.ToLower() 
+                    : null;
+
+                // For family documents, check if user explicitly wants family-specific selection
+                bool useFamilySelection = isFamily && (operation == "family" || operation == "all" || string.IsNullOrEmpty(operation));
+
+                if (useFamilySelection)
+                {
+                    return GetSelectedFamilyElements(uidoc, doc);
+                }
+                else
+                {
+                    return GetSelectedProjectElements(uidoc, doc);
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to get selected elements: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Get selected elements from a project document
+        /// </summary>
+        private object GetSelectedProjectElements(UIDocument uidoc, Document doc)
+        {
+            try
+            {
                 Autodesk.Revit.UI.Selection.Selection selection = uidoc.Selection;
 
                 if (selection == null || selection.GetElementIds().Count == 0)
@@ -737,6 +1251,7 @@ namespace RevitMCPAddin
                     return new
                     {
                         success = true,
+                        environment = "project",
                         elementCount = 0,
                         elements = new List<object>()
                     };
@@ -768,14 +1283,156 @@ namespace RevitMCPAddin
                 return new
                 {
                     success = true,
+                    environment = "project",
                     elementCount = elementList.Count,
                     elements = elementList
                 };
             }
             catch (Exception ex)
             {
-                return new { success = false, error = $"Failed to get selected elements: {ex.Message}" };
+                return new { success = false, error = $"Failed to get selected project elements: {ex.Message}" };
             }
+        }
+
+        /// <summary>
+        /// Get selected elements from a family document
+        /// Includes reference points, model curves, forms, adaptive points, and other family elements
+        /// </summary>
+        private object GetSelectedFamilyElements(UIDocument uidoc, Document doc)
+        {
+            try
+            {
+                Autodesk.Revit.UI.Selection.Selection selection = uidoc.Selection;
+
+                if (selection == null || selection.GetElementIds().Count == 0)
+                {
+                    return new
+                    {
+                        success = true,
+                        environment = "family",
+                        elementCount = 0,
+                        elements = new List<object>()
+                    };
+                }
+
+                // Get all selected element IDs
+                var selectedIds = selection.GetElementIds();
+
+                // Build list of selected family elements with their information
+                var elementList = new List<object>();
+                foreach (ElementId elementId in selectedIds)
+                {
+                    Element element = doc.GetElement(elementId);
+                    if (element == null) continue;
+
+                    var elementInfo = BuildFamilyElementInfo(element, doc);
+                    elementList.Add(elementInfo);
+                }
+
+                return new
+                {
+                    success = true,
+                    environment = "family",
+                    elementCount = elementList.Count,
+                    elements = elementList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to get selected family elements: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Build detailed information about a family element
+        /// </summary>
+        private object BuildFamilyElementInfo(Element element, Document doc)
+        {
+            string elementType = element.GetType().Name;
+            var info = new Dictionary<string, object>
+            {
+                { "id", GetElementIdInt(element.Id) },
+                { "name", GetElementName(element) },
+                { "type", elementType },
+                { "category", element.Category?.Name }
+            };
+
+            // Add type-specific information for common family element types
+            try
+            {
+                if (element is ReferencePoint refPt)
+                {
+                    try
+                    {
+                        XYZ pt = refPt.Position;
+                        info["position"] = new { x = pt.X, y = pt.Y, z = pt.Z };
+                    }
+                    catch { }
+                }
+                else if (element is ModelCurve modelCurve)
+                {
+                    try
+                    {
+                        Curve curve = modelCurve.GeometryCurve;
+                        info["curve_type"] = curve?.GetType().Name;
+                        info["curve_length"] = curve?.Length;
+                        if (modelCurve.SketchPlane != null)
+                        {
+                            info["sketch_plane_id"] = GetElementIdInt(modelCurve.SketchPlane.Id);
+                            info["sketch_plane_name"] = modelCurve.SketchPlane.Name;
+                        }
+                    }
+                    catch { }
+                }
+                else if (element is SymbolicCurve symbolicCurve)
+                {
+                    try
+                    {
+                        Curve curve = symbolicCurve.GeometryCurve;
+                        info["curve_type"] = curve?.GetType().Name;
+                        info["curve_length"] = curve?.Length;
+                        if (symbolicCurve.SketchPlane != null)
+                        {
+                            info["sketch_plane_id"] = GetElementIdInt(symbolicCurve.SketchPlane.Id);
+                            info["sketch_plane_name"] = symbolicCurve.SketchPlane.Name;
+                        }
+                    }
+                    catch { }
+                }
+                else if (elementType.Contains("Form") || elementType.Contains("GenericForm"))
+                {
+                    // Handle form elements generically by type name
+                    info["element_subtype"] = "form";
+                }
+                else if (elementType.Contains("AdaptivePoint") || elementType.Contains("Adaptive"))
+                {
+                    info["element_subtype"] = "adaptive_point";
+                }
+                else if (elementType.Contains("CurveByPoints"))
+                {
+                    // CurveByPoints specific info
+                    try
+                    {
+                        // Try to get IsReferenceLine if available
+                        var isRefLineProp = element.GetType().GetProperty("IsReferenceLine");
+                        if (isRefLineProp != null)
+                        {
+                            info["is_reference_line"] = (bool)isRefLineProp.GetValue(element);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            // Add common parameters
+            try
+            {
+                info["parameters"] = GetElementParametersDict(element);
+            }
+            catch { }
+
+            return info;
         }
 
         /// <summary>
@@ -3028,6 +3685,364 @@ namespace RevitMCPAddin
         }
 
         /// <summary>
+        /// Create geometric shapes (rectangles, circles, polygons) as detail lines in a view
+        /// </summary>
+        private object CreateDetailShapes(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("shape_type") || parameters["shape_type"] == null)
+                {
+                    return new { success = false, error = "shape_type is required" };
+                }
+
+                string shapeType = parameters["shape_type"].ToString().ToLower();
+                
+                // Get view - use active view if not specified
+                View view = doc.ActiveView;
+                if (parameters.ContainsKey("view_id") && parameters["view_id"] != null)
+                {
+                    int viewId = Convert.ToInt32(parameters["view_id"]);
+                    Element viewElem = doc.GetElement(new ElementId(viewId));
+                    if (viewElem is View v)
+                    {
+                        view = v;
+                    }
+                }
+
+                if (view == null || view.IsTemplate || !CanAddDetailElements(view))
+                {
+                    return new { success = false, error = "Active view is not valid for detail curves" };
+                }
+
+                double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+                double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+                double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+                XYZ center = new XYZ(centerX, centerY, centerZ);
+
+                double width = parameters.ContainsKey("width") ? Convert.ToDouble(parameters["width"]) : 5;
+                double height = parameters.ContainsKey("height") ? Convert.ToDouble(parameters["height"]) : 5;
+                double radius = parameters.ContainsKey("radius") ? Convert.ToDouble(parameters["radius"]) : 5;
+                int sides = parameters.ContainsKey("sides") ? Convert.ToInt32(parameters["sides"]) : 6;
+                double rotation = parameters.ContainsKey("rotation") ? Convert.ToDouble(parameters["rotation"]) : 0;
+
+                var createdLines = new List<int>();
+
+                using (Transaction trans = new Transaction(doc, "Create Detail Shape"))
+                {
+                    trans.Start();
+
+                    try
+                    {
+                        List<XYZ> shapePoints = GenerateShapePoints(shapeType, center, width, height, radius, sides, rotation);
+
+                        if (shapePoints.Count < 2)
+                        {
+                            return new { success = false, error = "Invalid shape parameters" };
+                        }
+
+                        // Create lines connecting the points
+                        for (int i = 0; i < shapePoints.Count; i++)
+                        {
+                            XYZ start = shapePoints[i];
+                            XYZ end = shapePoints[(i + 1) % shapePoints.Count];
+                            
+                            Line line = Line.CreateBound(start, end);
+                            DetailCurve detailCurve = doc.Create.NewDetailCurve(view, line);
+                            createdLines.Add(GetElementIdInt(detailCurve.Id));
+                        }
+
+                        trans.Commit();
+
+                        return new
+                        {
+                            success = true,
+                            shape_type = shapeType,
+                            center = new { x = centerX, y = centerY, z = centerZ },
+                            line_count = createdLines.Count,
+                            line_ids = createdLines,
+                            view_id = GetElementIdInt(view.Id)
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = $"Failed to create detail shape: {ex.Message}" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"CreateDetailShapes error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Create geometric shapes (rectangles, circles, polygons) as model lines in 3D space
+        /// </summary>
+        private object CreateModelShapes(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("shape_type") || parameters["shape_type"] == null)
+                {
+                    return new { success = false, error = "shape_type is required" };
+                }
+
+                string shapeType = parameters["shape_type"].ToString().ToLower();
+
+                double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+                double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+                double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+                XYZ center = new XYZ(centerX, centerY, centerZ);
+
+                double width = parameters.ContainsKey("width") ? Convert.ToDouble(parameters["width"]) : 5;
+                double height = parameters.ContainsKey("height") ? Convert.ToDouble(parameters["height"]) : 5;
+                double radius = parameters.ContainsKey("radius") ? Convert.ToDouble(parameters["radius"]) : 5;
+                int sides = parameters.ContainsKey("sides") ? Convert.ToInt32(parameters["sides"]) : 6;
+                double rotation = parameters.ContainsKey("rotation") ? Convert.ToDouble(parameters["rotation"]) : 0;
+
+                var createdLines = new List<int>();
+
+                using (Transaction trans = new Transaction(doc, "Create Model Shape"))
+                {
+                    trans.Start();
+
+                    try
+                    {
+                        List<XYZ> shapePoints = GenerateShapePoints(shapeType, center, width, height, radius, sides, rotation);
+
+                        if (shapePoints.Count < 2)
+                        {
+                            return new { success = false, error = "Invalid shape parameters" };
+                        }
+
+                        // Create lines connecting the points
+                        for (int i = 0; i < shapePoints.Count; i++)
+                        {
+                            XYZ start = shapePoints[i];
+                            XYZ end = shapePoints[(i + 1) % shapePoints.Count];
+                            
+                            Line line = Line.CreateBound(start, end);
+                            ModelCurve modelCurve = doc.Create.NewModelCurve(line, (SketchPlane)null);
+                            createdLines.Add(GetElementIdInt(modelCurve.Id));
+                        }
+
+                        trans.Commit();
+
+                        return new
+                        {
+                            success = true,
+                            shape_type = shapeType,
+                            center = new { x = centerX, y = centerY, z = centerZ },
+                            line_count = createdLines.Count,
+                            line_ids = createdLines
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = $"Failed to create model shape: {ex.Message}" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"CreateModelShapes error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Create geometric shapes (rectangles, circles, polygons) as symbolic lines in a family document
+        /// </summary>
+        private object CreateSymbolicShapes(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!doc.IsFamilyDocument)
+                {
+                    return new { success = false, error = "This tool requires a family document. Open a family file." };
+                }
+
+                if (!parameters.ContainsKey("shape_type") || parameters["shape_type"] == null)
+                {
+                    return new { success = false, error = "shape_type is required" };
+                }
+
+                string shapeType = parameters["shape_type"].ToString().ToLower();
+
+                double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+                double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+                double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+                XYZ center = new XYZ(centerX, centerY, centerZ);
+
+                double width = parameters.ContainsKey("width") ? Convert.ToDouble(parameters["width"]) : 5;
+                double height = parameters.ContainsKey("height") ? Convert.ToDouble(parameters["height"]) : 5;
+                double radius = parameters.ContainsKey("radius") ? Convert.ToDouble(parameters["radius"]) : 5;
+                int sides = parameters.ContainsKey("sides") ? Convert.ToInt32(parameters["sides"]) : 6;
+                double rotation = parameters.ContainsKey("rotation") ? Convert.ToDouble(parameters["rotation"]) : 0;
+
+                SketchPlane sketchPlane = GetOrCreateSketchPlane(doc, parameters);
+                if (sketchPlane == null)
+                {
+                    return new { success = false, error = "Could not get or create sketch plane" };
+                }
+
+                var createdCurves = new List<int>();
+
+                using (Transaction trans = new Transaction(doc, "Create Symbolic Shape"))
+                {
+                    trans.Start();
+
+                    try
+                    {
+                        List<XYZ> shapePoints = GenerateShapePoints(shapeType, center, width, height, radius, sides, rotation);
+
+                        if (shapePoints.Count < 2)
+                        {
+                            return new { success = false, error = "Invalid shape parameters" };
+                        }
+
+                        // Create symbolic curves connecting the points
+                        for (int i = 0; i < shapePoints.Count; i++)
+                        {
+                            XYZ start = shapePoints[i];
+                            XYZ end = shapePoints[(i + 1) % shapePoints.Count];
+                            
+                            Line line = Line.CreateBound(start, end);
+                            SymbolicCurve symbolicCurve = doc.FamilyCreate.NewSymbolicCurve(line, sketchPlane);
+                            createdCurves.Add(GetElementIdInt(symbolicCurve.Id));
+                        }
+
+                        trans.Commit();
+
+                        return new
+                        {
+                            success = true,
+                            shape_type = shapeType,
+                            center = new { x = centerX, y = centerY, z = centerZ },
+                            curve_count = createdCurves.Count,
+                            curve_ids = createdCurves,
+                            sketch_plane_id = GetElementIdInt(sketchPlane.Id)
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = $"Failed to create symbolic shape: {ex.Message}" };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"CreateSymbolicShapes error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Generate shape points based on shape type and parameters
+        /// </summary>
+        private List<XYZ> GenerateShapePoints(string shapeType, XYZ center, double width, double height, double radius, int sides, double rotationDegrees)
+        {
+            var points = new List<XYZ>();
+            double rotationRad = rotationDegrees * Math.PI / 180.0;
+
+            switch (shapeType.ToLower())
+            {
+                case "rectangle":
+                    {
+                        XYZ[] corners = new XYZ[]
+                        {
+                            new XYZ(center.X - width, center.Y - height, center.Z),
+                            new XYZ(center.X + width, center.Y - height, center.Z),
+                            new XYZ(center.X + width, center.Y + height, center.Z),
+                            new XYZ(center.X - width, center.Y + height, center.Z)
+                        };
+
+                        foreach (XYZ corner in corners)
+                        {
+                            XYZ rotated = RotatePointAround(corner, center, rotationRad);
+                            points.Add(rotated);
+                        }
+                        break;
+                    }
+
+                case "circle":
+                    {
+                        int segments = Math.Max(12, sides * 2); // Use more segments for smooth circle
+                        for (int i = 0; i < segments; i++)
+                        {
+                            double angle = (2 * Math.PI * i) / segments + rotationRad;
+                            XYZ point = new XYZ(
+                                center.X + radius * Math.Cos(angle),
+                                center.Y + radius * Math.Sin(angle),
+                                center.Z
+                            );
+                            points.Add(point);
+                        }
+                        break;
+                    }
+
+                case "polygon":
+                    {
+                        if (sides < 3) sides = 3;
+                        for (int i = 0; i < sides; i++)
+                        {
+                            double angle = (2 * Math.PI * i) / sides + rotationRad;
+                            XYZ point = new XYZ(
+                                center.X + radius * Math.Cos(angle),
+                                center.Y + radius * Math.Sin(angle),
+                                center.Z
+                            );
+                            points.Add(point);
+                        }
+                        break;
+                    }
+
+                default:
+                    // Default to rectangle
+                    {
+                        XYZ[] corners = new XYZ[]
+                        {
+                            new XYZ(center.X - width, center.Y - height, center.Z),
+                            new XYZ(center.X + width, center.Y - height, center.Z),
+                            new XYZ(center.X + width, center.Y + height, center.Z),
+                            new XYZ(center.X - width, center.Y + height, center.Z)
+                        };
+
+                        foreach (XYZ corner in corners)
+                        {
+                            XYZ rotated = RotatePointAround(corner, center, rotationRad);
+                            points.Add(rotated);
+                        }
+                        break;
+                    }
+            }
+
+            return points;
+        }
+
+        /// <summary>
+        /// Rotate a point around a center point by a specified angle
+        /// </summary>
+        private XYZ RotatePointAround(XYZ point, XYZ center, double angleRadians)
+        {
+            // Translate to origin
+            double x = point.X - center.X;
+            double y = point.Y - center.Y;
+            double z = point.Z;
+
+            // Rotate around Z axis
+            double cosA = Math.Cos(angleRadians);
+            double sinA = Math.Sin(angleRadians);
+            double newX = x * cosA - y * sinA;
+            double newY = x * sinA + y * cosA;
+
+            // Translate back
+            return new XYZ(newX + center.X, newY + center.Y, z);
+        }
+
+        /// <summary>
         /// Rotate elements around an axis using ElementTransformUtils
         /// </summary>
         private object RotateElements(Document doc, Dictionary<string, object> parameters)
@@ -3077,10 +4092,38 @@ namespace RevitMCPAddin
                 double angleDegrees = Convert.ToDouble(parameters["angle"]);
                 double angleRadians = angleDegrees * Math.PI / 180.0;
 
-                // Get axis point (defaults to origin if not specified)
+                // Determine default Z coordinate for rotation axis
+                // In family documents, use Reference Level elevation; in projects, use 0
+                double defaultAxisZ = 0;
+                string referencePlaneUsed = "origin (0,0,0)";
+                
+                if (doc.IsFamilyDocument && !parameters.ContainsKey("axis_point_z"))
+                {
+                    try
+                    {
+                        // Try to find Reference Level sketch plane in family document
+                        FilteredElementCollector collector = new FilteredElementCollector(doc);
+                        var refLevelPlane = collector.OfClass(typeof(SketchPlane))
+                            .Cast<SketchPlane>()
+                            .FirstOrDefault(sp => sp.Name.Equals("Reference Level", StringComparison.OrdinalIgnoreCase));
+                        
+                        if (refLevelPlane != null)
+                        {
+                            defaultAxisZ = refLevelPlane.GetPlane().Origin.Z;
+                            referencePlaneUsed = $"Reference Level (Z={defaultAxisZ:F3})";
+                        }
+                    }
+                    catch
+                    {
+                        // If we can't find Reference Level, use 0
+                        defaultAxisZ = 0;
+                    }
+                }
+
+                // Get axis point (defaults to origin or Reference Level in families)
                 double axisX = Convert.ToDouble(parameters.ContainsKey("axis_point_x") ? parameters["axis_point_x"] : 0);
                 double axisY = Convert.ToDouble(parameters.ContainsKey("axis_point_y") ? parameters["axis_point_y"] : 0);
-                double axisZ = Convert.ToDouble(parameters.ContainsKey("axis_point_z") ? parameters["axis_point_z"] : 0);
+                double axisZ = Convert.ToDouble(parameters.ContainsKey("axis_point_z") ? parameters["axis_point_z"] : defaultAxisZ);
                 XYZ axisPoint = new XYZ(axisX, axisY, axisZ);
 
                 // Get axis direction (defaults to Z-axis for rotation in XY plane)
@@ -3147,7 +4190,9 @@ namespace RevitMCPAddin
                             angle_degrees = angleDegrees,
                             angle_radians = angleRadians,
                             axis_point = new { x = axisX, y = axisY, z = axisZ },
-                            axis_direction = new { x = dirX, y = dirY, z = dirZ }
+                            axis_direction = new { x = dirX, y = dirY, z = dirZ },
+                            reference_plane_used = referencePlaneUsed,
+                            is_family_document = doc.IsFamilyDocument
                         };
                     }
                     catch (Exception ex)
@@ -3493,6 +4538,74 @@ namespace RevitMCPAddin
             catch (Exception ex)
             {
                 return new { success = false, error = $"Error in GetFamilyParameters: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Detect whether the current document is a family (.rfa) or a project document (.rvt)
+        /// </summary>
+        private object DetectDocumentType(Document doc)
+        {
+            try
+            {
+                string documentPath = doc.PathName;
+                string documentTitle = doc.Title;
+                bool isFamilyDocument = doc.IsFamilyDocument;
+                bool isProjectDocument = !isFamilyDocument;
+                
+                // Determine document type
+                string documentType = isFamilyDocument ? "Family (.rfa)" : "Project (.rvt)";
+                
+                // Get additional information
+                string documentCategory = "Unknown";
+                if (isFamilyDocument)
+                {
+                    try
+                    {
+                        // Try to determine family category
+                        FamilyManager fm = doc.FamilyManager;
+                        if (fm != null && fm.Types.Size > 0)
+                        {
+                            FamilyType firstType = null;
+                            foreach (FamilyType ft in fm.Types)
+                            {
+                                firstType = ft;
+                                break;
+                            }
+                            if (firstType != null)
+                            {
+                                documentCategory = "Conceptual Mass";
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        documentCategory = "Family";
+                    }
+                }
+                else
+                {
+                    documentCategory = "Project";
+                }
+
+                return new
+                {
+                    success = true,
+                    is_family_document = isFamilyDocument,
+                    is_project_document = isProjectDocument,
+                    document_type = documentType,
+                    document_category = documentCategory,
+                    document_title = documentTitle,
+                    document_path = documentPath,
+                    can_add_shared_parameters = isProjectDocument,
+                    can_edit_family_parameters = isFamilyDocument,
+                    can_create_families = isProjectDocument,
+                    can_load_families = isProjectDocument
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Error in DetectDocumentType: {ex.Message}" };
             }
         }
 
@@ -4558,7 +5671,7 @@ namespace RevitMCPAddin
                 // Projection line color
                 if (parameters.ContainsKey("projection_line_color") && parameters["projection_line_color"] != null)
                 {
-                    Color color = ParseColor(parameters["projection_line_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["projection_line_color"]);
                     if (color != null)
                     {
                         ogs.SetProjectionLineColor(color);
@@ -4577,7 +5690,7 @@ namespace RevitMCPAddin
                 // Cut line color
                 if (parameters.ContainsKey("cut_line_color") && parameters["cut_line_color"] != null)
                 {
-                    Color color = ParseColor(parameters["cut_line_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["cut_line_color"]);
                     if (color != null)
                     {
                         ogs.SetCutLineColor(color);
@@ -4596,7 +5709,7 @@ namespace RevitMCPAddin
                 // Surface foreground pattern color
                 if (parameters.ContainsKey("surface_foreground_color") && parameters["surface_foreground_color"] != null)
                 {
-                    Color color = ParseColor(parameters["surface_foreground_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["surface_foreground_color"]);
                     if (color != null)
                     {
                         ogs.SetSurfaceForegroundPatternColor(color);
@@ -4607,7 +5720,7 @@ namespace RevitMCPAddin
                 // Surface background pattern color
                 if (parameters.ContainsKey("surface_background_color") && parameters["surface_background_color"] != null)
                 {
-                    Color color = ParseColor(parameters["surface_background_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["surface_background_color"]);
                     if (color != null)
                     {
                         ogs.SetSurfaceBackgroundPatternColor(color);
@@ -4618,7 +5731,7 @@ namespace RevitMCPAddin
                 // Cut foreground pattern color
                 if (parameters.ContainsKey("cut_foreground_color") && parameters["cut_foreground_color"] != null)
                 {
-                    Color color = ParseColor(parameters["cut_foreground_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["cut_foreground_color"]);
                     if (color != null)
                     {
                         ogs.SetCutForegroundPatternColor(color);
@@ -4629,7 +5742,7 @@ namespace RevitMCPAddin
                 // Cut background pattern color
                 if (parameters.ContainsKey("cut_background_color") && parameters["cut_background_color"] != null)
                 {
-                    Color color = ParseColor(parameters["cut_background_color"]);
+                    Autodesk.Revit.DB.Color color = ParseColor(parameters["cut_background_color"]);
                     if (color != null)
                     {
                         ogs.SetCutBackgroundPatternColor(color);
@@ -4824,7 +5937,7 @@ namespace RevitMCPAddin
         /// <summary>
         /// Parse a color from various formats (hex string, RGB object, or array)
         /// </summary>
-        private Color ParseColor(object colorObj)
+        private Autodesk.Revit.DB.Color ParseColor(object colorObj)
         {
             try
             {
@@ -4837,7 +5950,7 @@ namespace RevitMCPAddin
                         byte r = Convert.ToByte(colorStr.Substring(0, 2), 16);
                         byte g = Convert.ToByte(colorStr.Substring(2, 2), 16);
                         byte b = Convert.ToByte(colorStr.Substring(4, 2), 16);
-                        return new Color(r, g, b);
+                        return new Autodesk.Revit.DB.Color(r, g, b);
                     }
                 }
                 else if (colorObj is JObject jObj)
@@ -4845,14 +5958,14 @@ namespace RevitMCPAddin
                     byte r = jObj["r"]?.ToObject<byte>() ?? 0;
                     byte g = jObj["g"]?.ToObject<byte>() ?? 0;
                     byte b = jObj["b"]?.ToObject<byte>() ?? 0;
-                    return new Color(r, g, b);
+                    return new Autodesk.Revit.DB.Color(r, g, b);
                 }
                 else if (colorObj is JArray jArr && jArr.Count >= 3)
                 {
                     byte r = jArr[0].ToObject<byte>();
                     byte g = jArr[1].ToObject<byte>();
                     byte b = jArr[2].ToObject<byte>();
-                    return new Color(r, g, b);
+                    return new Autodesk.Revit.DB.Color(r, g, b);
                 }
             }
             catch { }
@@ -5385,6 +6498,221 @@ namespace RevitMCPAddin
                         }
                         definition.AddSortGroupField(sortGroup);
                         modifications.Add($"Added sort/group by '{fieldName}' ({(ascending ? "ascending" : "descending")})");
+                    }
+
+                    // Remove specific sort/group field by name
+                    if (parameters.ContainsKey("remove_sort_group") && parameters["remove_sort_group"] != null)
+                    {
+                        string fieldNameToRemove = parameters["remove_sort_group"].ToString();
+                        for (int i = definition.GetSortGroupFieldCount() - 1; i >= 0; i--)
+                        {
+                            ScheduleSortGroupField sg = definition.GetSortGroupField(i);
+                            ScheduleField sgField = definition.GetField(definition.GetFieldIndex(sg.FieldId));
+                            if (sgField.GetName().Equals(fieldNameToRemove, StringComparison.OrdinalIgnoreCase))
+                            {
+                                definition.RemoveSortGroupField(i);
+                                modifications.Add($"Removed sort/group field '{fieldNameToRemove}'");
+                                break;
+                            }
+                        }
+                    }
+
+                    // Format field (alignment, width, heading, visibility, totals)
+                    if (parameters.ContainsKey("format_field") && parameters["format_field"] != null)
+                    {
+                        var formatObj = parameters["format_field"];
+                        JObject formatParams = formatObj is JObject jobj ? jobj : JObject.FromObject(formatObj);
+
+                        string fieldName = formatParams["field_name"]?.ToString();
+                        if (string.IsNullOrEmpty(fieldName))
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = "field_name is required for format_field" };
+                        }
+
+                        // Find the field
+                        ScheduleField targetField = null;
+                        for (int i = 0; i < definition.GetFieldCount(); i++)
+                        {
+                            ScheduleField field = definition.GetField(i);
+                            if (field.GetName().Equals(fieldName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                targetField = field;
+                                break;
+                            }
+                        }
+
+                        if (targetField == null)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = $"Field '{fieldName}' not found in schedule" };
+                        }
+
+                        // Set column heading
+                        if (formatParams.ContainsKey("heading") && formatParams["heading"] != null)
+                        {
+                            string heading = formatParams["heading"].ToString();
+                            targetField.ColumnHeading = heading;
+                            modifications.Add($"Set heading for '{fieldName}' to '{heading}'");
+                        }
+
+                        // Set horizontal alignment
+                        if (formatParams.ContainsKey("alignment") && formatParams["alignment"] != null)
+                        {
+                            string alignmentStr = formatParams["alignment"].ToString().ToLower();
+                            ScheduleHorizontalAlignment alignment = ScheduleHorizontalAlignment.Left;
+                            switch (alignmentStr)
+                            {
+                                case "left": alignment = ScheduleHorizontalAlignment.Left; break;
+                                case "center": alignment = ScheduleHorizontalAlignment.Center; break;
+                                case "right": alignment = ScheduleHorizontalAlignment.Right; break;
+                            }
+                            targetField.HorizontalAlignment = alignment;
+                            modifications.Add($"Set alignment for '{fieldName}' to {alignmentStr}");
+                        }
+
+                        // Set column width
+                        if (formatParams.ContainsKey("width") && formatParams["width"] != null)
+                        {
+                            double width = Convert.ToDouble(formatParams["width"]);
+                            targetField.SheetColumnWidth = width / 12.0; // Convert to feet
+                            modifications.Add($"Set width for '{fieldName}' to {width} inches");
+                        }
+
+                        // Show/hide field
+                        if (formatParams.ContainsKey("hidden") && formatParams["hidden"] != null)
+                        {
+                            bool hidden = Convert.ToBoolean(formatParams["hidden"]);
+                            targetField.IsHidden = hidden;
+                            modifications.Add($"Set '{fieldName}' to {(hidden ? "hidden" : "visible")}");
+                        }
+
+                        // Calculate totals
+                        if (formatParams.ContainsKey("calculate_totals") && formatParams["calculate_totals"] != null)
+                        {
+                            bool calculateTotals = Convert.ToBoolean(formatParams["calculate_totals"]);
+                            if (targetField.CanTotal())
+                            {
+                                targetField.DisplayType = calculateTotals ? ScheduleFieldDisplayType.Totals : ScheduleFieldDisplayType.Standard;
+                                modifications.Add($"Set calculate totals for '{fieldName}' to {calculateTotals}");
+                            }
+                            else
+                            {
+                                modifications.Add($"Warning: Field '{fieldName}' does not support totals");
+                            }
+                        }
+                    }
+
+                    // Add field calculation (for combined fields or formulas)
+                    if (parameters.ContainsKey("add_calculated_field") && parameters["add_calculated_field"] != null)
+                    {
+                        var calcObj = parameters["add_calculated_field"];
+                        JObject calcParams = calcObj is JObject jobj ? jobj : JObject.FromObject(calcObj);
+
+                        string fieldName = calcParams["field_name"]?.ToString();
+                        string calculationType = calcParams["calculation_type"]?.ToString()?.ToLower();
+
+                        if (string.IsNullOrEmpty(fieldName))
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = "field_name is required for add_calculated_field" };
+                        }
+
+                        // Find the field
+                        ScheduleField targetField = null;
+                        for (int i = 0; i < definition.GetFieldCount(); i++)
+                        {
+                            ScheduleField field = definition.GetField(i);
+                            if (field.GetName().Equals(fieldName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                targetField = field;
+                                break;
+                            }
+                        }
+
+                        if (targetField == null)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = $"Field '{fieldName}' not found in schedule" };
+                        }
+
+                        // Set calculation type based on what the field supports
+                        if (!string.IsNullOrEmpty(calculationType))
+                        {
+                            switch (calculationType)
+                            {
+                                case "sum":
+                                case "total":
+                                case "totals":
+                                    if (targetField.CanTotal())
+                                    {
+                                        targetField.DisplayType = ScheduleFieldDisplayType.Totals;
+                                        modifications.Add($"Set '{fieldName}' to calculate totals (sum)");
+                                    }
+                                    break;
+                                    
+                                case "minimum":
+                                case "min":
+                                    if (targetField.FieldType == ScheduleFieldType.Instance || 
+                                        targetField.FieldType == ScheduleFieldType.ElementType)
+                                    {
+                                        // Minimum calculation - show minimum value
+                                        modifications.Add($"Note: Minimum calculation set for '{fieldName}' - configure in UI");
+                                    }
+                                    break;
+                                    
+                                case "maximum":
+                                case "max":
+                                    if (targetField.FieldType == ScheduleFieldType.Instance || 
+                                        targetField.FieldType == ScheduleFieldType.ElementType)
+                                    {
+                                        modifications.Add($"Note: Maximum calculation set for '{fieldName}' - configure in UI");
+                                    }
+                                    break;
+                            }
+                        }
+                    }
+
+                    // Set field order/position
+                    if (parameters.ContainsKey("reorder_field") && parameters["reorder_field"] != null)
+                    {
+                        var reorderObj = parameters["reorder_field"];
+                        JObject reorderParams = reorderObj is JObject jobj ? jobj : JObject.FromObject(reorderObj);
+
+                        string fieldName = reorderParams["field_name"]?.ToString();
+                        int newPosition = reorderParams["position"]?.ToObject<int>() ?? 0;
+
+                        if (string.IsNullOrEmpty(fieldName))
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = "field_name is required for reorder_field" };
+                        }
+
+                        // Find the field
+                        int currentIndex = -1;
+                        for (int i = 0; i < definition.GetFieldCount(); i++)
+                        {
+                            ScheduleField field = definition.GetField(i);
+                            if (field.GetName().Equals(fieldName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                currentIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (currentIndex == -1)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = $"Field '{fieldName}' not found in schedule" };
+                        }
+
+                        // Move field to new position
+                        int targetPosition = Math.Max(0, Math.Min(newPosition, definition.GetFieldCount() - 1));
+                        if (currentIndex != targetPosition)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = "Field reordering is not currently supported in the Revit API. Fields must be manually reordered in the UI." };
+                        }
                     }
 
                     trans.Commit();
@@ -10416,7 +11744,7 @@ namespace RevitMCPAddin
             string operation = parameters.ContainsKey("operation") ? parameters["operation"]?.ToString()?.ToLower() : null;
             if (string.IsNullOrEmpty(operation))
             {
-                return new { success = false, error = "operation is required. Use 'draw_line', 'draw_arc', 'draw_curve_by_points', 'draw_sine_wave', 'draw_spiral', 'draw_helix', or 'get_model_curves'." };
+                return new { success = false, error = "operation is required. Use 'draw_line', 'draw_arc', 'draw_curve_by_points', 'draw_sine_wave', 'draw_spiral', 'draw_helix', 'draw_cosine_wave', 'draw_rectangle', 'draw_circle', 'draw_polygon', or 'get_model_curves'." };
             }
 
             try
@@ -10444,11 +11772,20 @@ namespace RevitMCPAddin
                     case "draw_cosine_wave":
                         return DrawCosineWaveCurve(doc, parameters);
 
+                    case "draw_rectangle":
+                        return DrawRectangle(doc, parameters);
+
+                    case "draw_circle":
+                        return DrawCircle(doc, parameters);
+
+                    case "draw_polygon":
+                        return DrawPolygon(doc, parameters);
+
                     case "get_model_curves":
                         return GetModelCurves(doc);
 
                     default:
-                        return new { success = false, error = $"Unknown model curve operation: {operation}. Use 'draw_line', 'draw_arc', 'draw_curve_by_points', 'draw_sine_wave', 'draw_spiral', 'draw_helix', 'draw_cosine_wave', or 'get_model_curves'." };
+                        return new { success = false, error = $"Unknown model curve operation: {operation}. Use 'draw_line', 'draw_arc', 'draw_curve_by_points', 'draw_sine_wave', 'draw_spiral', 'draw_helix', 'draw_cosine_wave', 'draw_rectangle', 'draw_circle', 'draw_polygon', or 'get_model_curves'." };
                 }
             }
             catch (Exception ex)
@@ -10472,9 +11809,6 @@ namespace RevitMCPAddin
             double endY = parameters.ContainsKey("end_y") ? Convert.ToDouble(parameters["end_y"]) : 0;
             double endZ = parameters.ContainsKey("end_z") ? Convert.ToDouble(parameters["end_z"]) : 0;
 
-            // Optional: use existing sketch plane
-            int? sketchPlaneId = parameters.ContainsKey("sketch_plane_id") ? Convert.ToInt32(parameters["sketch_plane_id"]) : (int?)null;
-
             XYZ startPoint = new XYZ(startX, startY, startZ);
             XYZ endPoint = new XYZ(endX, endY, endZ);
 
@@ -10490,33 +11824,12 @@ namespace RevitMCPAddin
                 // Create line geometry
                 Line line = Line.CreateBound(startPoint, endPoint);
 
-                // Get or create sketch plane
-                SketchPlane sketchPlane;
-                if (sketchPlaneId.HasValue)
+                // Get default family sketch plane (Reference Level / horizontal plane by default)
+                SketchPlane sketchPlane = GetDefaultFamilySketchPlane(doc, parameters);
+                if (sketchPlane == null)
                 {
-                    Element spElem = doc.GetElement(new ElementId(sketchPlaneId.Value));
-                    if (spElem is SketchPlane sp)
-                    {
-                        sketchPlane = sp;
-                    }
-                    else
-                    {
-                        trans.RollBack();
-                        return new { success = false, error = $"Element {sketchPlaneId.Value} is not a SketchPlane." };
-                    }
-                }
-                else
-                {
-                    // Create a sketch plane containing the line
-                    XYZ lineDir = (endPoint - startPoint).Normalize();
-                    XYZ perpDir;
-                    if (Math.Abs(lineDir.Z) < 0.9)
-                        perpDir = lineDir.CrossProduct(XYZ.BasisZ).Normalize();
-                    else
-                        perpDir = lineDir.CrossProduct(XYZ.BasisX).Normalize();
-                    XYZ normal = lineDir.CrossProduct(perpDir).Normalize();
-                    Plane plane = Plane.CreateByNormalAndOrigin(normal, startPoint);
-                    sketchPlane = SketchPlane.Create(doc, plane);
+                    trans.RollBack();
+                    return new { success = false, error = "Could not find or create sketch plane for model line." };
                 }
 
                 // Create model curve
@@ -10527,9 +11840,10 @@ namespace RevitMCPAddin
                 return new
                 {
                     success = true,
-                    message = "Model line created successfully",
+                    message = "Model line created successfully on Reference Level plane",
                     modelCurveId = GetElementIdInt(modelCurve.Id),
                     sketchPlaneId = GetElementIdInt(sketchPlane.Id),
+                    sketchPlaneName = sketchPlane.Name,
                     startPoint = new { x = startX, y = startY, z = startZ },
                     endPoint = new { x = endX, y = endY, z = endZ },
                     length = startPoint.DistanceTo(endPoint)
@@ -10544,9 +11858,6 @@ namespace RevitMCPAddin
         private object DrawModelArc(Document doc, Dictionary<string, object> parameters)
         {
             string arcMode = parameters.ContainsKey("arc_mode") ? parameters["arc_mode"]?.ToString()?.ToLower() : "center_radius";
-
-            // Optional: use existing sketch plane
-            int? sketchPlaneId = parameters.ContainsKey("sketch_plane_id") ? Convert.ToInt32(parameters["sketch_plane_id"]) : (int?)null;
 
             Arc arc;
             XYZ center;
@@ -10622,27 +11933,12 @@ namespace RevitMCPAddin
             {
                 trans.Start();
 
-                // Get or create sketch plane
-                SketchPlane sketchPlane;
-                if (sketchPlaneId.HasValue)
+                // Get default family sketch plane (Reference Level / horizontal plane by default)
+                SketchPlane sketchPlane = GetDefaultFamilySketchPlane(doc, parameters);
+                if (sketchPlane == null)
                 {
-                    Element spElem = doc.GetElement(new ElementId(sketchPlaneId.Value));
-                    if (spElem is SketchPlane sp)
-                    {
-                        sketchPlane = sp;
-                    }
-                    else
-                    {
-                        trans.RollBack();
-                        return new { success = false, error = $"Element {sketchPlaneId.Value} is not a SketchPlane." };
-                    }
-                }
-                else
-                {
-                    // Create a sketch plane for the arc
-                    XYZ normal = arc.Normal;
-                    Plane plane = Plane.CreateByNormalAndOrigin(normal, center);
-                    sketchPlane = SketchPlane.Create(doc, plane);
+                    trans.RollBack();
+                    return new { success = false, error = "Could not find or create sketch plane for model arc." };
                 }
 
                 // Create model curve
@@ -10653,9 +11949,10 @@ namespace RevitMCPAddin
                 return new
                 {
                     success = true,
-                    message = "Model arc created successfully",
+                    message = "Model arc created successfully on Reference Level plane",
                     modelCurveId = GetElementIdInt(modelCurve.Id),
                     sketchPlaneId = GetElementIdInt(sketchPlane.Id),
+                    sketchPlaneName = sketchPlane.Name,
                     center = new { x = center.X, y = center.Y, z = center.Z },
                     radius = arc.Radius,
                     arcLength = arc.Length
@@ -11073,6 +12370,165 @@ namespace RevitMCPAddin
                 count = curvesList.Count,
                 modelCurves = curvesList
             };
+        }
+
+        /// <summary>
+        /// Draw rectangle using model curves in a family document
+        /// </summary>
+        private object DrawRectangle(Document doc, Dictionary<string, object> parameters)
+        {
+            double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+            double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+            double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+            double width = parameters.ContainsKey("width") ? Convert.ToDouble(parameters["width"]) : 10;
+            double height = parameters.ContainsKey("height") ? Convert.ToDouble(parameters["height"]) : 5;
+
+            XYZ center = new XYZ(centerX, centerY, centerZ);
+            double halfWidth = width / 2;
+            double halfHeight = height / 2;
+
+            // Calculate corner points
+            XYZ[] corners = new XYZ[4]
+            {
+                center + new XYZ(-halfWidth, -halfHeight, 0),
+                center + new XYZ(halfWidth, -halfHeight, 0),
+                center + new XYZ(halfWidth, halfHeight, 0),
+                center + new XYZ(-halfWidth, halfHeight, 0)
+            };
+
+            // Get default family sketch plane
+            SketchPlane sketchPlane = GetDefaultFamilySketchPlane(doc, parameters);
+            return DrawClosedShape(doc, corners, "Rectangle", sketchPlane);
+        }
+
+        /// <summary>
+        /// Draw circle using model curves in a family document
+        /// </summary>
+        private object DrawCircle(Document doc, Dictionary<string, object> parameters)
+        {
+            double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+            double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+            double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+            double radius = parameters.ContainsKey("radius") ? Convert.ToDouble(parameters["radius"]) : 5;
+            int segments = parameters.ContainsKey("segments") ? Convert.ToInt32(parameters["segments"]) : 24;
+
+            if (segments < 4 || segments > 100)
+                segments = 24;
+
+            XYZ center = new XYZ(centerX, centerY, centerZ);
+
+            // Generate circle points
+            XYZ[] points = new XYZ[segments];
+            double angleStep = 2 * Math.PI / segments;
+
+            for (int i = 0; i < segments; i++)
+            {
+                double angle = i * angleStep;
+                double x = centerX + radius * Math.Cos(angle);
+                double y = centerY + radius * Math.Sin(angle);
+                points[i] = new XYZ(x, y, centerZ);
+            }
+
+            // Get default family sketch plane
+            SketchPlane sketchPlane = GetDefaultFamilySketchPlane(doc, parameters);
+            return DrawClosedShape(doc, points, $"Circle (r={radius})", sketchPlane);
+        }
+
+        /// <summary>
+        /// Draw regular polygon (3-12 sides) using model curves in a family document
+        /// </summary>
+        private object DrawPolygon(Document doc, Dictionary<string, object> parameters)
+        {
+            double centerX = parameters.ContainsKey("center_x") ? Convert.ToDouble(parameters["center_x"]) : 0;
+            double centerY = parameters.ContainsKey("center_y") ? Convert.ToDouble(parameters["center_y"]) : 0;
+            double centerZ = parameters.ContainsKey("center_z") ? Convert.ToDouble(parameters["center_z"]) : 0;
+            double radius = parameters.ContainsKey("radius") ? Convert.ToDouble(parameters["radius"]) : 5;
+            int sides = parameters.ContainsKey("sides") ? Convert.ToInt32(parameters["sides"]) : 6;
+
+            if (sides < 3 || sides > 12)
+            {
+                return new { success = false, error = "Polygon sides must be between 3 and 12." };
+            }
+
+            XYZ center = new XYZ(centerX, centerY, centerZ);
+
+            // Generate polygon points
+            XYZ[] points = new XYZ[sides];
+            double angleStep = 2 * Math.PI / sides;
+            // Start at top (90 degrees offset for symmetry)
+            double startAngle = Math.PI / 2;
+
+            for (int i = 0; i < sides; i++)
+            {
+                double angle = startAngle + i * angleStep;
+                double x = centerX + radius * Math.Cos(angle);
+                double y = centerY + radius * Math.Sin(angle);
+                points[i] = new XYZ(x, y, centerZ);
+            }
+
+            string[] shapeNames = new[] { "", "", "Triangle", "Square", "Pentagon", "Hexagon", "Heptagon", "Octagon", "Nonagon", "Decagon", "Hendecagon", "Dodecagon" };
+            string shapeName = sides <= 12 ? shapeNames[sides] : $"{sides}-sided Polygon";
+
+            // Get default family sketch plane
+            SketchPlane sketchPlane = GetDefaultFamilySketchPlane(doc, parameters);
+            return DrawClosedShape(doc, points, shapeName, sketchPlane);
+        }
+
+        /// <summary>
+        /// Helper to draw closed shapes using model lines
+        /// </summary>
+        private object DrawClosedShape(Document doc, XYZ[] points, string shapeName, SketchPlane sketchPlane = null)
+        {
+            try
+            {
+                if (points.Length < 2)
+                {
+                    return new { success = false, error = "At least 2 points required." };
+                }
+
+                var createdLineIds = new List<int>();
+
+                using (Transaction trans = new Transaction(doc, $"Draw {shapeName}"))
+                {
+                    trans.Start();
+
+                    // Use provided sketch plane or create default
+                    if (sketchPlane == null)
+                    {
+                        Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, points[0]);
+                        sketchPlane = SketchPlane.Create(doc, plane);
+                    }
+
+                    // Draw lines connecting all points, closing the shape
+                    for (int i = 0; i < points.Length; i++)
+                    {
+                        XYZ startPt = points[i];
+                        XYZ endPt = points[(i + 1) % points.Length]; // Wrap to first point to close
+
+                        Line line = Line.CreateBound(startPt, endPt);
+                        ModelCurve modelCurve = doc.FamilyCreate.NewModelCurve(line, sketchPlane);
+                        createdLineIds.Add(GetElementIdInt(modelCurve.Id));
+                    }
+
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        message = $"{shapeName} created successfully on Reference Level plane",
+                        shape = shapeName,
+                        line_count = createdLineIds.Count,
+                        line_ids = createdLineIds,
+                        point_count = points.Length,
+                        sketch_plane_id = GetElementIdInt(sketchPlane.Id),
+                        sketch_plane_name = sketchPlane.Name
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Error drawing {shapeName}: {ex.Message}" };
+            }
         }
 
         #endregion
@@ -13338,8 +14794,594 @@ namespace RevitMCPAddin
             }
         }
 
+        #endregion
+
+        #region Family Modeling Tool
+        private object LoadAndPlaceFamily(UIApplication app, Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                string operation = parameters.ContainsKey("operation") ? parameters["operation"].ToString() : "list_families";
+
+                switch (operation.ToLower())
+                {
+                    case "list_families":
+                        return ListFamiliesInProject(doc, parameters);
+
+                    case "list_family_types":
+                        return ListFamilyTypes(doc, parameters);
+
+                    case "load_family":
+                        return LoadFamilyFromFile(doc, parameters);
+
+                    case "place_family":
+                        return PlaceFamilyInstance(doc, parameters);
+
+                    default:
+                        return new
+                        {
+                            success = false,
+                            error = $"Unknown operation: {operation}",
+                            available_operations = new[]
+                            {
+                                "list_families",
+                                "list_family_types",
+                                "load_family",
+                                "place_family"
+                            }
+                        };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"LoadAndPlaceFamily error: {ex.Message}", stackTrace = ex.StackTrace };
+            }
+        }
+
         /// <summary>
-        /// Helper: Get face from element by index
+        /// List all families in the project, optionally filtered by category
+        /// </summary>
+        private object ListFamiliesInProject(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                string categoryFilter = parameters.ContainsKey("category") ? parameters["category"].ToString() : null;
+                bool includeSystemFamilies = parameters.ContainsKey("include_system_families") && 
+                    Convert.ToBoolean(parameters["include_system_families"]);
+
+                FilteredElementCollector collector = new FilteredElementCollector(doc);
+                var families = collector.OfClass(typeof(Family)).Cast<Family>();
+
+                // Filter by category if specified
+                if (!string.IsNullOrEmpty(categoryFilter))
+                {
+                    var builtInCat = GetBuiltInCategory(categoryFilter);
+                    if (builtInCat.HasValue)
+                    {
+                        families = families.Where(f => f.FamilyCategory != null && 
+                            f.FamilyCategory.BuiltInCategory == builtInCat.Value);
+                    }
+                }
+
+                // Filter out system families unless requested
+                if (!includeSystemFamilies)
+                {
+                    families = families.Where(f => f.IsEditable);
+                }
+
+                var familyList = families.Select(f =>
+                {
+                    var symbols = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilySymbol))
+                        .Cast<FamilySymbol>()
+                        .Where(s => s.Family.Id == f.Id)
+                        .ToList();
+
+                    return new
+                    {
+                        family_id = GetElementIdInt(f.Id),
+                        family_name = f.Name,
+                        category = f.FamilyCategory?.Name,
+                        is_editable = f.IsEditable,
+                        is_in_place = f.IsInPlace,
+                        type_count = symbols.Count,
+                        types = symbols.Select(s => new
+                        {
+                            type_id = GetElementIdInt(s.Id),
+                            type_name = s.Name,
+                            is_active = s.IsActive
+                        }).ToList()
+                    };
+                }).ToList();
+
+                return new
+                {
+                    success = true,
+                    count = familyList.Count,
+                    category_filter = categoryFilter,
+                    families = familyList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"ListFamiliesInProject error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// List all types within a specific family
+        /// </summary>
+        private object ListFamilyTypes(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("family_name") && !parameters.ContainsKey("family_id"))
+                {
+                    return new { success = false, error = "Either family_name or family_id is required" };
+                }
+
+                Family family = null;
+
+                // Find by ID
+                if (parameters.ContainsKey("family_id"))
+                {
+                    int familyId = Convert.ToInt32(parameters["family_id"]);
+                    Element elem = doc.GetElement(new ElementId(familyId));
+                    family = elem as Family;
+                }
+                // Find by name
+                else if (parameters.ContainsKey("family_name"))
+                {
+                    string familyName = parameters["family_name"].ToString();
+                    family = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Family))
+                        .Cast<Family>()
+                        .FirstOrDefault(f => f.Name.Equals(familyName, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (family == null)
+                {
+                    return new { success = false, error = "Family not found" };
+                }
+
+                var symbols = new FilteredElementCollector(doc)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .Where(s => s.Family.Id == family.Id)
+                    .Select(s => new
+                    {
+                        type_id = GetElementIdInt(s.Id),
+                        type_name = s.Name,
+                        is_active = s.IsActive,
+                        category = s.Category?.Name,
+                        family_name = s.Family?.Name
+                    })
+                    .ToList();
+
+                return new
+                {
+                    success = true,
+                    family_id = GetElementIdInt(family.Id),
+                    family_name = family.Name,
+                    category = family.FamilyCategory?.Name,
+                    type_count = symbols.Count,
+                    types = symbols
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"ListFamilyTypes error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Load a family from file path
+        /// </summary>
+        private object LoadFamilyFromFile(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("file_path"))
+                {
+                    return new { success = false, error = "file_path is required" };
+                }
+
+                string filePath = parameters["file_path"].ToString();
+
+                if (!File.Exists(filePath))
+                {
+                    return new { success = false, error = $"File not found: {filePath}" };
+                }
+
+                if (!filePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new { success = false, error = "File must be a Revit family file (.rfa)" };
+                }
+
+                using (Transaction trans = new Transaction(doc, "Load Family"))
+                {
+                    trans.Start();
+
+                    Family loadedFamily = null;
+                    bool loaded = doc.LoadFamily(filePath, out loadedFamily);
+
+                    if (!loaded || loadedFamily == null)
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = "Failed to load family" };
+                    }
+
+                    trans.Commit();
+
+                    // Get all symbols from the loaded family
+                    var symbols = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilySymbol))
+                        .Cast<FamilySymbol>()
+                        .Where(s => s.Family.Id == loadedFamily.Id)
+                        .Select(s => new
+                        {
+                            type_id = GetElementIdInt(s.Id),
+                            type_name = s.Name,
+                            is_active = s.IsActive
+                        })
+                        .ToList();
+
+                    return new
+                    {
+                        success = true,
+                        message = "Family loaded successfully",
+                        family_id = GetElementIdInt(loadedFamily.Id),
+                        family_name = loadedFamily.Name,
+                        category = loadedFamily.FamilyCategory?.Name,
+                        file_path = filePath,
+                        type_count = symbols.Count,
+                        types = symbols
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"LoadFamilyFromFile error: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Place a family instance with various placement methods
+        /// </summary>
+        private object PlaceFamilyInstance(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("type_id") && !parameters.ContainsKey("type_name"))
+                {
+                    return new { success = false, error = "Either type_id or type_name is required" };
+                }
+
+                FamilySymbol familySymbol = null;
+
+                // Find by ID
+                if (parameters.ContainsKey("type_id"))
+                {
+                    int typeId = Convert.ToInt32(parameters["type_id"]);
+                    Element elem = doc.GetElement(new ElementId(typeId));
+                    familySymbol = elem as FamilySymbol;
+                }
+                // Find by name
+                else if (parameters.ContainsKey("type_name"))
+                {
+                    string typeName = parameters["type_name"].ToString();
+                    string familyName = parameters.ContainsKey("family_name") ? parameters["family_name"].ToString() : null;
+
+                    var query = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilySymbol))
+                        .Cast<FamilySymbol>()
+                        .Where(s => s.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase));
+
+                    if (!string.IsNullOrEmpty(familyName))
+                    {
+                        query = query.Where(s => s.Family.Name.Equals(familyName, StringComparison.OrdinalIgnoreCase));
+                    }
+
+                    familySymbol = query.FirstOrDefault();
+                }
+
+                if (familySymbol == null)
+                {
+                    return new { success = false, error = "Family type not found" };
+                }
+
+                // Determine placement method
+                string placementMethod = parameters.ContainsKey("placement_method") ? 
+                    parameters["placement_method"].ToString().ToLower() : "point";
+
+                switch (placementMethod)
+                {
+                    case "point":
+                        return PlaceFamilyAtPoint(doc, familySymbol, parameters);
+
+                    case "point_in_view":
+                        return PlaceFamilyAtPointInView(doc, familySymbol, parameters);
+
+                    case "host":
+                    case "on_host":
+                        return PlaceFamilyOnHost(doc, familySymbol, parameters);
+
+                    case "face":
+                    case "on_face":
+                        return PlaceFamilyOnFace(doc, familySymbol, parameters);
+
+                    case "line":
+                    case "along_line":
+                        return PlaceFamilyAlongLine(doc, familySymbol, parameters);
+
+                    default:
+                        return new { success = false, error = $"Unknown placement_method: {placementMethod}. Use: point, point_in_view, host, face, or line" };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"PlaceFamilyInstance error: {ex.Message}" };
+            }
+        }
+
+        private object PlaceFamilyAtPoint(Document doc, FamilySymbol familySymbol, Dictionary<string, object> parameters)
+        {
+            double x = parameters.ContainsKey("x") ? Convert.ToDouble(parameters["x"]) : 0;
+            double y = parameters.ContainsKey("y") ? Convert.ToDouble(parameters["y"]) : 0;
+            double z = parameters.ContainsKey("z") ? Convert.ToDouble(parameters["z"]) : 0;
+
+            string structuralTypeStr = parameters.ContainsKey("structural_type") ?
+                parameters["structural_type"].ToString() : "NonStructural";
+            StructuralType structuralType = GetStructuralType(structuralTypeStr);
+
+            XYZ location = new XYZ(x, y, z);
+
+            using (Transaction trans = new Transaction(doc, "Place Family at Point"))
+            {
+                trans.Start();
+
+                if (!familySymbol.IsActive)
+                {
+                    familySymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                FamilyInstance instance = doc.Create.NewFamilyInstance(location, familySymbol, structuralType);
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    instance_id = GetElementIdInt(instance.Id),
+                    family_name = familySymbol.Family?.Name,
+                    type_name = familySymbol.Name,
+                    location = new { x, y, z },
+                    placement_method = "point"
+                };
+            }
+        }
+
+        private object PlaceFamilyAtPointInView(Document doc, FamilySymbol familySymbol, Dictionary<string, object> parameters)
+        {
+            double x = parameters.ContainsKey("x") ? Convert.ToDouble(parameters["x"]) : 0;
+            double y = parameters.ContainsKey("y") ? Convert.ToDouble(parameters["y"]) : 0;
+            double z = parameters.ContainsKey("z") ? Convert.ToDouble(parameters["z"]) : 0;
+
+            View view = null;
+            if (parameters.ContainsKey("view_id"))
+            {
+                int viewId = Convert.ToInt32(parameters["view_id"]);
+                view = doc.GetElement(new ElementId(viewId)) as View;
+            }
+            else
+            {
+                view = doc.ActiveView;
+            }
+
+            if (view == null)
+            {
+                return new { success = false, error = "No valid view specified or active" };
+            }
+
+            XYZ location = new XYZ(x, y, z);
+
+            using (Transaction trans = new Transaction(doc, "Place Family in View"))
+            {
+                trans.Start();
+
+                if (!familySymbol.IsActive)
+                {
+                    familySymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                FamilyInstance instance = doc.Create.NewFamilyInstance(location, familySymbol, view);
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    instance_id = GetElementIdInt(instance.Id),
+                    family_name = familySymbol.Family?.Name,
+                    type_name = familySymbol.Name,
+                    location = new { x, y, z },
+                    view_id = GetElementIdInt(view.Id),
+                    placement_method = "point_in_view"
+                };
+            }
+        }
+
+        private object PlaceFamilyOnHost(Document doc, FamilySymbol familySymbol, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("host_id"))
+            {
+                return new { success = false, error = "host_id is required for host placement" };
+            }
+
+            int hostId = Convert.ToInt32(parameters["host_id"]);
+            Element hostElement = doc.GetElement(new ElementId(hostId));
+
+            if (hostElement == null)
+            {
+                return new { success = false, error = $"Host element {hostId} not found" };
+            }
+
+            double x = parameters.ContainsKey("x") ? Convert.ToDouble(parameters["x"]) : 0;
+            double y = parameters.ContainsKey("y") ? Convert.ToDouble(parameters["y"]) : 0;
+            double z = parameters.ContainsKey("z") ? Convert.ToDouble(parameters["z"]) : 0;
+
+            string structuralTypeStr = parameters.ContainsKey("structural_type") ?
+                parameters["structural_type"].ToString() : "NonStructural";
+            StructuralType structuralType = GetStructuralType(structuralTypeStr);
+
+            XYZ location = new XYZ(x, y, z);
+
+            using (Transaction trans = new Transaction(doc, "Place Family on Host"))
+            {
+                trans.Start();
+
+                if (!familySymbol.IsActive)
+                {
+                    familySymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                FamilyInstance instance = doc.Create.NewFamilyInstance(location, familySymbol, hostElement, structuralType);
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    instance_id = GetElementIdInt(instance.Id),
+                    family_name = familySymbol.Family?.Name,
+                    type_name = familySymbol.Name,
+                    host_id = hostId,
+                    location = new { x, y, z },
+                    placement_method = "host"
+                };
+            }
+        }
+
+        private object PlaceFamilyOnFace(Document doc, FamilySymbol familySymbol, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("face_element_id"))
+            {
+                return new { success = false, error = "face_element_id is required for face placement" };
+            }
+
+            int faceElemId = Convert.ToInt32(parameters["face_element_id"]);
+            Element faceElement = doc.GetElement(new ElementId(faceElemId));
+
+            if (faceElement == null)
+            {
+                return new { success = false, error = $"Face element {faceElemId} not found" };
+            }
+
+            int faceIndex = parameters.ContainsKey("face_index") ? Convert.ToInt32(parameters["face_index"]) : 0;
+            Face face = GetFaceFromElement(doc, faceElement, faceIndex);
+
+            if (face == null)
+            {
+                return new { success = false, error = $"Could not get face {faceIndex} from element" };
+            }
+
+            double x = parameters.ContainsKey("x") ? Convert.ToDouble(parameters["x"]) : 0;
+            double y = parameters.ContainsKey("y") ? Convert.ToDouble(parameters["y"]) : 0;
+            double z = parameters.ContainsKey("z") ? Convert.ToDouble(parameters["z"]) : 0;
+            XYZ location = new XYZ(x, y, z);
+
+            using (Transaction trans = new Transaction(doc, "Place Family on Face"))
+            {
+                trans.Start();
+
+                if (!familySymbol.IsActive)
+                {
+                    familySymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                FamilyInstance instance = doc.Create.NewFamilyInstance(face, location, XYZ.BasisX, familySymbol);
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    instance_id = GetElementIdInt(instance.Id),
+                    family_name = familySymbol.Family?.Name,
+                    type_name = familySymbol.Name,
+                    face_element_id = faceElemId,
+                    location = new { x, y, z },
+                    placement_method = "face"
+                };
+            }
+        }
+
+        private object PlaceFamilyAlongLine(Document doc, FamilySymbol familySymbol, Dictionary<string, object> parameters)
+        {
+            double startX = parameters.ContainsKey("line_start_x") ? Convert.ToDouble(parameters["line_start_x"]) : 0;
+            double startY = parameters.ContainsKey("line_start_y") ? Convert.ToDouble(parameters["line_start_y"]) : 0;
+            double startZ = parameters.ContainsKey("line_start_z") ? Convert.ToDouble(parameters["line_start_z"]) : 0;
+            double endX = parameters.ContainsKey("line_end_x") ? Convert.ToDouble(parameters["line_end_x"]) : 10;
+            double endY = parameters.ContainsKey("line_end_y") ? Convert.ToDouble(parameters["line_end_y"]) : 0;
+            double endZ = parameters.ContainsKey("line_end_z") ? Convert.ToDouble(parameters["line_end_z"]) : 0;
+
+            XYZ startPoint = new XYZ(startX, startY, startZ);
+            XYZ endPoint = new XYZ(endX, endY, endZ);
+            Line line = Line.CreateBound(startPoint, endPoint);
+
+            View view = null;
+            if (parameters.ContainsKey("view_id"))
+            {
+                int viewId = Convert.ToInt32(parameters["view_id"]);
+                view = doc.GetElement(new ElementId(viewId)) as View;
+            }
+            else
+            {
+                view = doc.ActiveView;
+            }
+
+            if (view == null)
+            {
+                return new { success = false, error = "No valid view specified or active" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Place Family Along Line"))
+            {
+                trans.Start();
+
+                if (!familySymbol.IsActive)
+                {
+                    familySymbol.Activate();
+                    doc.Regenerate();
+                }
+
+                FamilyInstance instance = doc.Create.NewFamilyInstance(line, familySymbol, view);
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    instance_id = GetElementIdInt(instance.Id),
+                    family_name = familySymbol.Family?.Name,
+                    type_name = familySymbol.Name,
+                    line_start = new { x = startX, y = startY, z = startZ },
+                    line_end = new { x = endX, y = endY, z = endZ },
+                    placement_method = "line"
+                };
+            }
+        }
+
+        #endregion
+
+        #region Family Modeling Tool
+
+        /// <summary>
+        /// Helper: Get StructuralType from string (moved from original location)
         /// </summary>
         private Face GetFaceFromElement(Document doc, Element elem, int faceIndex)
         {
@@ -13468,6 +15510,9 @@ namespace RevitMCPAddin
                     case "get_sketch_planes":
                         return GetFamilySketchPlanes(doc, parameters);
 
+                    case "convert_symbolic_to_model":
+                        return ConvertSymbolicToModelCurves(doc, parameters);
+
                     default:
                         return new
                         {
@@ -13491,6 +15536,7 @@ namespace RevitMCPAddin
                                 "new_symbolic_curve",
                                 "new_control",
                                 "new_diameter_dimension",
+                                "convert_symbolic_to_model",
                                 "get_forms",
                                 "get_sketch_planes"
                             }
@@ -13521,23 +15567,67 @@ namespace RevitMCPAddin
                     return new { success = false, error = "Could not get or create sketch plane" };
                 }
 
-                // Get profile points
-                var profilePoints = GetProfilePoints(parameters);
-                if (profilePoints == null || profilePoints.Count < 3)
+                CurveArrArray curveArrArray = new CurveArrArray();
+                CurveArray curveArray = new CurveArray();
+
+                // Check if using existing curve elements (profile_curve_ids) or points (profile_points)
+                var profileCurveIds = GetElementIdListFromParam(parameters, "profile_curve_ids");
+                
+                if (profileCurveIds != null && profileCurveIds.Count > 0)
                 {
-                    return new { success = false, error = "Profile requires at least 3 points. Use 'profile_points' parameter." };
+                    // Using existing curves - collect all curves into a single profile
+                    foreach (int curveId in profileCurveIds)
+                    {
+                        Element curveElem = doc.GetElement(new ElementId(curveId));
+                        if (curveElem != null)
+                        {
+                            Curve curve = null;
+                            
+                            // Extract curve from different element types
+                            if (curveElem is ModelCurve modelCurve)
+                            {
+                                curve = modelCurve.GeometryCurve;
+                            }
+                            else if (curveElem is CurveByPoints curveByPoints)
+                            {
+                                curve = curveByPoints.GeometryCurve;
+                            }
+                            else if (curveElem is ModelLine modelLine)
+                            {
+                                curve = modelLine.GeometryCurve;
+                            }
+                            
+                            if (curve != null)
+                            {
+                                curveArray.Append(curve);
+                            }
+                        }
+                    }
+                    
+                    if (curveArray.Size < 3)
+                    {
+                        return new { success = false, error = $"At least 3 valid curves required for extrusion profile. Found {curveArray.Size} curves." };
+                    }
                 }
+                else
+                {
+                    // Using profile points - create curves from points
+                    var profilePoints = GetProfilePoints(parameters);
+                    if (profilePoints == null || profilePoints.Count < 3)
+                    {
+                        return new { success = false, error = "Profile requires at least 3 points (use 'profile_points') or 3 curve element IDs (use 'profile_curve_ids')." };
+                    }
+                    
+                    curveArray = CreateCurveArrayFromPoints(profilePoints);
+                }
+
+                curveArrArray.Append(curveArray);
 
                 using (Transaction trans = new Transaction(doc, "Create Extrusion"))
                 {
                     trans.Start();
 
-                    // Create profile curves
-                    CurveArrArray curveArrArray = new CurveArrArray();
-                    CurveArray curveArray = CreateCurveArrayFromPoints(profilePoints);
-                    curveArrArray.Append(curveArray);
-
-                    // Create the extrusion
+                    // Create the extrusion (single call with all curves in the profile)
                     Extrusion extrusion = doc.FamilyCreate.NewExtrusion(isSolid, curveArrArray, sketchPlane, extrusionEnd);
 
                     // Set start offset if specified - try EXTRUSION_START_PARAM
@@ -13557,11 +15647,16 @@ namespace RevitMCPAddin
                     return new
                     {
                         success = true,
+                        message = profileCurveIds != null ? 
+                            $"Extrusion created from {curveArray.Size} existing curves in a single operation" :
+                            $"Extrusion created from {curveArray.Size} curve segments",
                         extrusion_id = GetElementIdInt(extrusion.Id),
                         is_solid = isSolid,
                         extrusion_start = extrusionStart,
                         extrusion_end = extrusionEnd,
-                        sketch_plane_id = GetElementIdInt(sketchPlane.Id)
+                        sketch_plane_id = GetElementIdInt(sketchPlane.Id),
+                        profile_curve_count = curveArray.Size,
+                        used_existing_curves = profileCurveIds != null && profileCurveIds.Count > 0
                     };
                 }
             }
@@ -14564,6 +16659,118 @@ namespace RevitMCPAddin
         }
 
         /// <summary>
+        /// Convert symbolic lines to model lines in a family document
+        /// </summary>
+        private object ConvertSymbolicToModelCurves(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!doc.IsFamilyDocument)
+                {
+                    return new { success = false, error = "This operation only works in family documents." };
+                }
+
+                // Get the element IDs to convert
+                List<int> symbolicCurveIds = new List<int>();
+                
+                if (parameters.ContainsKey("element_ids") && parameters["element_ids"] is System.Collections.IEnumerable enumerable)
+                {
+                    foreach (var item in enumerable)
+                    {
+                        symbolicCurveIds.Add(Convert.ToInt32(item));
+                    }
+                }
+                else if (parameters.ContainsKey("element_id"))
+                {
+                    symbolicCurveIds.Add(Convert.ToInt32(parameters["element_id"]));
+                }
+                else
+                {
+                    return new { success = false, error = "Please provide 'element_id' or 'element_ids' parameter." };
+                }
+
+                if (symbolicCurveIds.Count == 0)
+                {
+                    return new { success = false, error = "No element IDs provided." };
+                }
+
+                List<int> newModelCurveIds = new List<int>();
+                List<string> messages = new List<string>();
+                int convertedCount = 0;
+
+                using (Transaction trans = new Transaction(doc, "Convert Symbolic to Model Curves"))
+                {
+                    trans.Start();
+
+                    foreach (int symbolicId in symbolicCurveIds)
+                    {
+                        try
+                        {
+                            Element element = doc.GetElement(new ElementId(symbolicId));
+                            
+                            if (element == null)
+                            {
+                                messages.Add($"Element {symbolicId} not found.");
+                                continue;
+                            }
+
+                            if (!(element is SymbolicCurve symbolicCurve))
+                            {
+                                messages.Add($"Element {symbolicId} is not a symbolic curve. Type: {element.GetType().Name}");
+                                continue;
+                            }
+
+                            // Get the geometry and sketch plane from the symbolic curve
+                            Curve curve = symbolicCurve.GeometryCurve;
+                            SketchPlane sketchPlane = symbolicCurve.SketchPlane;
+
+                            if (curve == null || sketchPlane == null)
+                            {
+                                messages.Add($"Could not get geometry or sketch plane from symbolic curve {symbolicId}.");
+                                continue;
+                            }
+
+                            // Create a new model curve with the same geometry
+                            ModelCurve modelCurve = doc.FamilyCreate.NewModelCurve(curve, sketchPlane);
+                            
+                            if (modelCurve != null)
+                            {
+                                newModelCurveIds.Add(GetElementIdInt(modelCurve.Id));
+                                convertedCount++;
+
+                                // Delete the original symbolic curve
+                                doc.Delete(symbolicCurve.Id);
+                                messages.Add($"Successfully converted symbolic curve {symbolicId} to model curve {GetElementIdInt(modelCurve.Id)}.");
+                            }
+                            else
+                            {
+                                messages.Add($"Failed to create model curve from symbolic curve {symbolicId}.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            messages.Add($"Error converting element {symbolicId}: {ex.Message}");
+                        }
+                    }
+
+                    trans.Commit();
+                }
+
+                return new
+                {
+                    success = convertedCount > 0,
+                    converted_count = convertedCount,
+                    new_model_curve_ids = newModelCurveIds,
+                    messages = messages
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"ConvertSymbolicToModelCurves error: {ex.Message}", stackTrace = ex.StackTrace };
+            }
+        }
+
+        /// <summary>
         /// Create a control in a family document (for parameter manipulation)
         /// Note: Control creation has limited API support in Revit 2026
         /// </summary>
@@ -14776,6 +16983,85 @@ namespace RevitMCPAddin
         }
 
         /// <summary>
+        /// Get default family sketch plane for model curves (Reference Level / horizontal plane at Z=0)
+        /// This is the standard floor plan view plane in family editor
+        /// </summary>
+        private SketchPlane GetDefaultFamilySketchPlane(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                // Check if sketch plane ID is explicitly provided
+                if (parameters.ContainsKey("sketch_plane_id"))
+                {
+                    int planeId = Convert.ToInt32(parameters["sketch_plane_id"]);
+                    Element planeElem = doc.GetElement(new ElementId(planeId));
+                    if (planeElem is SketchPlane sp)
+                    {
+                        return sp;
+                    }
+                }
+
+                // Check for sketch plane name
+                if (parameters.ContainsKey("sketch_plane_name"))
+                {
+                    string planeName = parameters["sketch_plane_name"].ToString();
+                    FilteredElementCollector collector = new FilteredElementCollector(doc);
+                    var plane = collector.OfClass(typeof(SketchPlane)).Cast<SketchPlane>()
+                        .FirstOrDefault(s => s.Name.Equals(planeName, StringComparison.OrdinalIgnoreCase));
+                    if (plane != null) return plane;
+                }
+
+                // Try to find "Reference Level" - the standard horizontal plane in family editor
+                FilteredElementCollector sketchPlaneCollector = new FilteredElementCollector(doc);
+                var refLevelPlane = sketchPlaneCollector.OfClass(typeof(SketchPlane))
+                    .Cast<SketchPlane>()
+                    .FirstOrDefault(sp => sp.Name.Equals("Reference Level", StringComparison.OrdinalIgnoreCase));
+                
+                if (refLevelPlane != null)
+                {
+                    return refLevelPlane;
+                }
+
+                // Try to find any horizontal plane at Z=0 or close to it
+                var horizontalPlanes = sketchPlaneCollector.OfClass(typeof(SketchPlane))
+                    .Cast<SketchPlane>()
+                    .Where(sp => 
+                    {
+                        XYZ normal = sp.GetPlane().Normal;
+                        // Check if normal is close to BasisZ (vertical plane with horizontal normal)
+                        return Math.Abs(Math.Abs(normal.Z) - 1.0) < 0.001;
+                    })
+                    .ToList();
+
+                if (horizontalPlanes.Count > 0)
+                {
+                    // Prefer the one closest to Z=0
+                    var closestToZero = horizontalPlanes
+                        .OrderBy(sp => Math.Abs(sp.GetPlane().Origin.Z))
+                        .FirstOrDefault();
+                    return closestToZero;
+                }
+
+                // Default: create a horizontal plane at Z=0 (XY plane)
+                Plane defaultPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero);
+                return SketchPlane.Create(doc, defaultPlane);
+            }
+            catch
+            {
+                // Last resort: create a simple XY plane at origin
+                try
+                {
+                    Plane fallbackPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero);
+                    return SketchPlane.Create(doc, fallbackPlane);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>
         /// Get profile points from parameters
         /// </summary>
         private List<XYZ> GetProfilePoints(Dictionary<string, object> parameters)
@@ -14914,6 +17200,8 @@ namespace RevitMCPAddin
 
             return curveArray;
         }
+
+        #endregion
 
         #endregion
 
@@ -15508,8 +17796,6 @@ namespace RevitMCPAddin
                 return null;
             }
         }
-
-        #endregion
 
         #endregion
 

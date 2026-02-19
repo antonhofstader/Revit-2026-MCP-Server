@@ -32,6 +32,12 @@ def check_windows():
 def create_virtual_environment():
     """Create Python virtual environment"""
     print("\nCreating virtual environment...")
+    
+    venv_path = Path("venv")
+    if venv_path.exists():
+        print("✓ Virtual environment already exists")
+        return True
+    
     try:
         subprocess.run([sys.executable, "-m", "venv", "venv"], check=True)
         print("✓ Virtual environment created")
@@ -45,11 +51,7 @@ def install_dependencies():
     """Install Python dependencies"""
     print("\nInstalling dependencies...")
     
-    # Determine pip path based on platform
-    if sys.platform == "win32":
-        pip_path = Path("venv/Scripts/pip.exe")
-    else:
-        pip_path = Path("venv/bin/pip")
+    pip_path = Path("venv/Scripts/pip.exe") if sys.platform == "win32" else Path("venv/bin/pip")
     
     if not pip_path.exists():
         print("Error: pip not found in virtual environment")
@@ -60,15 +62,41 @@ def install_dependencies():
         subprocess.run([str(pip_path), "install", "--upgrade", "pip"], check=True)
         
         # Install package in development mode
-        subprocess.run([str(pip_path), "install", "-e", "."], check=True)
+        result = subprocess.run(
+            [str(pip_path), "install", "-e", "."],
+            check=True,
+            capture_output=True,
+            text=True
+        )
         
-        # Install dev dependencies
-        subprocess.run([str(pip_path), "install", "-e", ".[dev]"], check=True)
+        # Install dev dependencies if available
+        try:
+            subprocess.run([str(pip_path), "install", "-e", ".[dev]"], 
+                       check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            print("⚠ Dev dependencies not available (optional)")
         
-        print("✓ Dependencies installed")
+        # Verify critical packages
+        result = subprocess.run(
+            [str(pip_path), "list"],
+            capture_output=True,
+            text=True
+        )
+        
+        required = ["mcp", "pydantic", "pythonnet", "pywin32"]
+        installed = result.stdout.lower()
+        missing = [pkg for pkg in required if pkg not in installed]
+        
+        if missing:
+            print(f"⚠ Warning: Missing packages: {missing}")
+        else:
+            print("✓ All dependencies installed")
+        
         return True
     except subprocess.CalledProcessError as e:
         print(f"Error installing dependencies: {e}")
+        if e.stderr:
+            print(f"Details: {e.stderr}")
         return False
 
 
@@ -107,12 +135,12 @@ def copy_revit_addin():
 
 def create_config_example():
     """Create example MCP configuration file"""
-    print("\nCreating example configuration...")
+    print("\nCreating a configuration in virtual environment...")
     
     config = {
         "mcpServers": {
             "revit": {
-                "command": "python",
+                "command": str(Path.cwd() / "venv" / "Scripts" / "python.exe"),
                 "args": [
                     str(Path.cwd() / "revit_mcp_server.py")
                 ]
@@ -133,6 +161,16 @@ def create_config_example():
     print("3. Add the configuration to the 'mcpServers' section")
     
     return True
+
+
+def cleanup():
+    """Remove virtual environment and installed files"""
+    # Remove venv, copy of .addin, etc.
+    print("\nCleaning up...")
+    if Path("venv").exists():
+        print("✓ Removed virtual environment")
+        shutil.rmtree("venv")
+    print("✓ Cleaned up")
 
 
 def main():
@@ -177,4 +215,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "clean":
+        cleanup()
+        sys.exit(0)
     sys.exit(main())

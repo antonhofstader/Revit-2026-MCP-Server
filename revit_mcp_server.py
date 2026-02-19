@@ -319,6 +319,67 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="export_image",
+            description="Export images from Revit views using ImageExportOptions. Supports multiple image formats (BMP, JPEG variants, PNG, TARGA, TIFF) with configurable resolution, zoom, and size settings.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "output_path": {
+                        "type": "string",
+                        "description": "Full path for the output image file (without extension - Revit adds it automatically based on file_type)"
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "description": "Image file format to export",
+                        "enum": ["BMP", "JPEGLossless", "JPEGMedium", "JPEGSmallest", "PNG", "TARGA", "TIFF"],
+                        "default": "PNG"
+                    },
+                    "dpi": {
+                        "type": "integer",
+                        "description": "Image resolution in dots per inch",
+                        "enum": [72, 150, 300, 600],
+                        "default": 150
+                    },
+                    "zoom_type": {
+                        "type": "string",
+                        "description": "How to fit the view in the image. FitToPage fits entire view, Zoom uses zoom percentage",
+                        "enum": ["FitToPage", "Zoom"],
+                        "default": "FitToPage"
+                    },
+                    "zoom": {
+                        "type": "integer",
+                        "description": "Zoom percentage (1-400) when zoom_type is 'Zoom'",
+                        "minimum": 1,
+                        "maximum": 400,
+                        "default": 100
+                    },
+                    "fit_direction": {
+                        "type": "string",
+                        "description": "Direction to fit the view when using FitToPage",
+                        "enum": ["Horizontal", "Vertical"],
+                        "default": "Horizontal"
+                    },
+                    "export_range": {
+                        "type": "string",
+                        "description": "Which views to export. CurrentView exports active view only, VisibleViews exports visible region, SpecificViews uses view_ids",
+                        "enum": ["CurrentView", "VisibleViews", "SpecificViews"],
+                        "default": "CurrentView"
+                    },
+                    "view_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Array of view element IDs to export (required when export_range is 'SpecificViews')"
+                    },
+                    "create_website": {
+                        "type": "boolean",
+                        "description": "Whether to create an HTML website with the exported images",
+                        "default": False
+                    }
+                },
+                "required": ["output_path"]
+            }
+        ),
+        Tool(
             name="query_elements",
             description="Query elements using Revit filters and criteria",
             inputSchema={
@@ -357,26 +418,41 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_selected_elements",
-            description="Retrieve the currently selected elements in the active Revit UI",
+            description="Retrieve the currently selected elements in the active Revit UI. Works with both project documents and family documents. In family documents, can select reference points, model curves, symbolic curves, forms, and other family-specific elements.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Selection environment to use. For project documents, this parameter is ignored. For family documents: 'project' to get standard project elements, 'family' to get family-specific elements (reference points, model curves, forms, etc.), or omit to auto-detect based on document type.",
+                        "enum": ["project", "family"]
+                    }
+                },
                 "required": []
             }
         ),
         Tool(
             name="set_active_view",
-            description="Set the active view in Revit based on the specified view type",
+            description="Set the active view in Revit. Works with both project and family documents. For family documents, supports switching between family views.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Operation to perform (for family documents). Use 'by_name', 'by_type', 'reference_level', or 'list_views'. For project documents, omit this parameter.",
+                        "enum": ["by_name", "by_type", "reference_level", "list_views"]
+                    },
                     "view_type": {
                         "type": "string",
-                        "description": "The type of view to activate (e.g., 'FloorPlan', 'ThreeDimensional', 'Section', 'Elevation')",
+                        "description": "The type of view to activate (e.g., 'FloorPlan', 'ThreeDimensional', 'Section', 'Elevation'). Use this for project views or when operation is 'by_type' in family documents.",
                         "enum": ["FloorPlan", "CeilingPlan", "Section", "Elevation", "ThreeDimensional", "Schedule", "DrawingSheet", "Report", "Drafting", "Legend", "ProjectBrowser", "SystemBrowser", "Walkthrough"]
+                    },
+                    "view_name": {
+                        "type": "string",
+                        "description": "The name of the view to activate. Use this when operation is 'by_name' in family documents."
                     }
                 },
-                "required": ["view_type"]
+                "required": []
             }
         ),
         Tool(
@@ -1175,8 +1251,199 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="create_detail_shapes",
+            description="Create geometric shapes (rectangles, circles, polygons) as detail lines in a specific view",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "shape_type": {
+                        "type": "string",
+                        "description": "Type of shape to create",
+                        "enum": ["rectangle", "circle", "polygon"],
+                        "default": "rectangle"
+                    },
+                    "center_x": {
+                        "type": "number",
+                        "description": "X coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_y": {
+                        "type": "number",
+                        "description": "Y coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_z": {
+                        "type": "number",
+                        "description": "Z coordinate of shape center",
+                        "default": 0
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "Width for rectangle (half-width of rectangle from center)",
+                        "default": 5
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "Height for rectangle (half-height of rectangle from center)",
+                        "default": 5
+                    },
+                    "radius": {
+                        "type": "number",
+                        "description": "Radius for circle or polygon",
+                        "default": 5
+                    },
+                    "sides": {
+                        "type": "integer",
+                        "description": "Number of sides for polygon (minimum 3)",
+                        "default": 6
+                    },
+                    "rotation": {
+                        "type": "number",
+                        "description": "Rotation angle in degrees",
+                        "default": 0
+                    },
+                    "view_id": {
+                        "type": "integer",
+                        "description": "View ID where the shape will be created (detail lines)"
+                    }
+                },
+                "required": ["shape_type"]
+            }
+        ),
+        Tool(
+            name="create_model_shapes",
+            description="Create geometric shapes (rectangles, circles, polygons) as model lines in 3D space",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "shape_type": {
+                        "type": "string",
+                        "description": "Type of shape to create",
+                        "enum": ["rectangle", "circle", "polygon"],
+                        "default": "rectangle"
+                    },
+                    "center_x": {
+                        "type": "number",
+                        "description": "X coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_y": {
+                        "type": "number",
+                        "description": "Y coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_z": {
+                        "type": "number",
+                        "description": "Z coordinate of shape center",
+                        "default": 0
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "Width for rectangle (half-width of rectangle from center)",
+                        "default": 5
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "Height for rectangle (half-height of rectangle from center)",
+                        "default": 5
+                    },
+                    "radius": {
+                        "type": "number",
+                        "description": "Radius for circle or polygon",
+                        "default": 5
+                    },
+                    "sides": {
+                        "type": "integer",
+                        "description": "Number of sides for polygon (minimum 3)",
+                        "default": 6
+                    },
+                    "rotation": {
+                        "type": "number",
+                        "description": "Rotation angle in degrees",
+                        "default": 0
+                    },
+                    "plane_normal_x": {
+                        "type": "number",
+                        "description": "X component of plane normal (for shape orientation)",
+                        "default": 0
+                    },
+                    "plane_normal_y": {
+                        "type": "number",
+                        "description": "Y component of plane normal (for shape orientation)",
+                        "default": 0
+                    },
+                    "plane_normal_z": {
+                        "type": "number",
+                        "description": "Z component of plane normal (for shape orientation)",
+                        "default": 1
+                    }
+                },
+                "required": ["shape_type"]
+            }
+        ),
+        Tool(
+            name="create_symbolic_shapes",
+            description="Create geometric shapes (rectangles, circles, polygons) as symbolic lines in a family document",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "shape_type": {
+                        "type": "string",
+                        "description": "Type of shape to create",
+                        "enum": ["rectangle", "circle", "polygon"],
+                        "default": "rectangle"
+                    },
+                    "center_x": {
+                        "type": "number",
+                        "description": "X coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_y": {
+                        "type": "number",
+                        "description": "Y coordinate of shape center",
+                        "default": 0
+                    },
+                    "center_z": {
+                        "type": "number",
+                        "description": "Z coordinate of shape center",
+                        "default": 0
+                    },
+                    "width": {
+                        "type": "number",
+                        "description": "Width for rectangle (half-width of rectangle from center)",
+                        "default": 5
+                    },
+                    "height": {
+                        "type": "number",
+                        "description": "Height for rectangle (half-height of rectangle from center)",
+                        "default": 5
+                    },
+                    "radius": {
+                        "type": "number",
+                        "description": "Radius for circle or polygon",
+                        "default": 5
+                    },
+                    "sides": {
+                        "type": "integer",
+                        "description": "Number of sides for polygon (minimum 3)",
+                        "default": 6
+                    },
+                    "rotation": {
+                        "type": "number",
+                        "description": "Rotation angle in degrees",
+                        "default": 0
+                    },
+                    "sketch_plane_id": {
+                        "type": "integer",
+                        "description": "Sketch plane ID for the symbolic curves (optional, uses default if not specified)"
+                    }
+                },
+                "required": ["shape_type"]
+            }
+        ),
+        Tool(
             name="rotate_elements",
-            description="Rotate one or more elements around an axis using ElementTransformUtils. The axis is defined by a point and a direction vector. By default, rotates around the Z-axis (vertical) for plan-view rotation.",
+            description="Rotate one or more elements around an axis using ElementTransformUtils. The axis is defined by a point and a direction vector. By default, rotates around the Z-axis (vertical) for plan-view rotation. In family documents, the default rotation axis is at the Reference Level elevation.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1205,7 +1472,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "axis_point_z": {
                         "type": "number",
-                        "description": "Z coordinate of a point on the rotation axis",
+                        "description": "Z coordinate of a point on the rotation axis. Defaults to 0 in project documents, or Reference Level elevation in family documents.",
                         "default": 0
                     },
                     "axis_direction_x": {
@@ -1272,6 +1539,15 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="get_family_parameters",
             description="Get all parameters in the current family document. Must be run while in the Family Editor with a family open.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        Tool(
+            name="detect_document_type",
+            description="Detect whether the current document is a family (.rfa) or a project document (.rvt). Returns document type and additional information.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -1584,7 +1860,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="modify_schedule",
-            description="Modify schedule settings including filters, itemization (instances vs count), sorting, and grouping. Can add/remove filters and change schedule behavior.",
+            description="Modify schedule settings including filters, sorting/grouping, field formatting, and calculations. Full control over schedule appearance and behavior including totals, alignment, column width, and field order.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1654,10 +1930,74 @@ async def list_tools() -> list[Tool]:
                             }
                         }
                     },
+                    "remove_sort_group": {
+                        "type": "string",
+                        "description": "Remove a specific sort/group field by field name"
+                    },
                     "clear_sort_groups": {
                         "type": "boolean",
                         "description": "Remove all existing sort/group fields",
                         "default": False
+                    },
+                    "format_field": {
+                        "type": "object",
+                        "description": "Format a schedule field's appearance and behavior",
+                        "properties": {
+                            "field_name": {
+                                "type": "string",
+                                "description": "Name of the field to format"
+                            },
+                            "heading": {
+                                "type": "string",
+                                "description": "Custom column heading text"
+                            },
+                            "alignment": {
+                                "type": "string",
+                                "description": "Horizontal alignment of field values",
+                                "enum": ["Left", "Center", "Right"]
+                            },
+                            "width": {
+                                "type": "number",
+                                "description": "Column width in inches"
+                            },
+                            "hidden": {
+                                "type": "boolean",
+                                "description": "Hide this field from the schedule display"
+                            },
+                            "calculate_totals": {
+                                "type": "boolean",
+                                "description": "Calculate totals/sum for this field (numeric fields only)"
+                            }
+                        }
+                    },
+                    "add_calculated_field": {
+                        "type": "object",
+                        "description": "Add calculation to a field (totals, minimum, maximum)",
+                        "properties": {
+                            "field_name": {
+                                "type": "string",
+                                "description": "Name of the field to add calculation to"
+                            },
+                            "calculation_type": {
+                                "type": "string",
+                                "description": "Type of calculation to perform",
+                                "enum": ["sum", "total", "totals", "minimum", "min", "maximum", "max"]
+                            }
+                        }
+                    },
+                    "reorder_field": {
+                        "type": "object",
+                        "description": "Change the position/order of a field in the schedule",
+                        "properties": {
+                            "field_name": {
+                                "type": "string",
+                                "description": "Name of the field to reorder"
+                            },
+                            "position": {
+                                "type": "integer",
+                                "description": "New column position (0-based index)"
+                            }
+                        }
                     }
                 },
                 "required": []
@@ -2628,6 +2968,124 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="load_and_place_family",
+            description="Comprehensive family management tool: list families in project by category, list family types, load families from .rfa files, and place family instances using various methods (point, host, face, line). Combines family discovery, loading, and placement in one unified tool.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Family operation to perform",
+                        "enum": ["list_families", "list_family_types", "load_family", "place_family"]
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Filter by category name (for list_families). Example: 'Doors', 'Windows', 'Furniture', 'Structural Framing'"
+                    },
+                    "include_system_families": {
+                        "type": "boolean",
+                        "description": "Include system families in results (for list_families)",
+                        "default": False
+                    },
+                    "family_name": {
+                        "type": "string",
+                        "description": "Family name (for list_family_types and place_family)"
+                    },
+                    "family_id": {
+                        "type": "integer",
+                        "description": "Family element ID (for list_family_types)"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Full path to .rfa family file to load (for load_family)"
+                    },
+                    "type_id": {
+                        "type": "integer",
+                        "description": "Family symbol/type ID to place (for place_family)"
+                    },
+                    "type_name": {
+                        "type": "string",
+                        "description": "Family type name (for place_family, used with family_name)"
+                    },
+                    "placement_method": {
+                        "type": "string",
+                        "description": "Placement method (for place_family)",
+                        "enum": ["point", "point_in_view", "host", "face", "line"],
+                        "default": "point"
+                    },
+                    "x": {
+                        "type": "number",
+                        "description": "X coordinate for placement",
+                        "default": 0
+                    },
+                    "y": {
+                        "type": "number",
+                        "description": "Y coordinate for placement",
+                        "default": 0
+                    },
+                    "z": {
+                        "type": "number",
+                        "description": "Z coordinate for placement",
+                        "default": 0
+                    },
+                    "structural_type": {
+                        "type": "string",
+                        "description": "Structural type for point placement method",
+                        "enum": ["NonStructural", "Column", "Beam", "Brace", "Footing"],
+                        "default": "NonStructural"
+                    },
+                    "view_id": {
+                        "type": "integer",
+                        "description": "View ID for point_in_view or line placement methods"
+                    },
+                    "host_id": {
+                        "type": "integer",
+                        "description": "Host element ID for host placement method (wall, floor, ceiling, etc.)"
+                    },
+                    "face_element_id": {
+                        "type": "integer",
+                        "description": "Element ID containing the face for face placement method"
+                    },
+                    "face_index": {
+                        "type": "integer",
+                        "description": "Face index on the element for face placement method",
+                        "default": 0
+                    },
+                    "line_start_x": {
+                        "type": "number",
+                        "description": "Line start X coordinate for line placement method",
+                        "default": 0
+                    },
+                    "line_start_y": {
+                        "type": "number",
+                        "description": "Line start Y coordinate for line placement method",
+                        "default": 0
+                    },
+                    "line_start_z": {
+                        "type": "number",
+                        "description": "Line start Z coordinate for line placement method",
+                        "default": 0
+                    },
+                    "line_end_x": {
+                        "type": "number",
+                        "description": "Line end X coordinate for line placement method",
+                        "default": 10
+                    },
+                    "line_end_y": {
+                        "type": "number",
+                        "description": "Line end Y coordinate for line placement method",
+                        "default": 0
+                    },
+                    "line_end_z": {
+                        "type": "number",
+                        "description": "Line end Z coordinate for line placement method",
+                        "default": 0
+                    }
+                },
+                "required": ["operation"]
+            }
+        ),
+        Tool(
             name="family_modeling_tool",
             description="Create geometry in family documents using FamilyCreate methods. Supports extrusions, blends, revolutions, sweeps, swept blends, loft forms, openings, model text, symbolic curves, and dimensions. Only works in family (.rfa) files.",
             inputSchema={
@@ -2636,12 +3094,21 @@ async def list_tools() -> list[Tool]:
                     "operation": {
                         "type": "string",
                         "description": "Family modeling operation to perform",
-                        "enum": ["new_extrusion", "new_blend", "new_revolution", "new_sweep", "new_swept_blend", "new_loft_form", "new_form_by_cap", "new_form_by_thicken", "new_revolve_form", "new_extrusion_form", "new_swept_blend_form", "new_model_text", "new_opening", "new_symbolic_curve", "new_control", "new_diameter_dimension", "get_forms", "get_sketch_planes"]
+                        "enum": ["new_extrusion", "new_blend", "new_revolution", "new_sweep", "new_swept_blend", "new_loft_form", "new_form_by_cap", "new_form_by_thicken", "new_revolve_form", "new_extrusion_form", "new_swept_blend_form", "new_model_text", "new_opening", "new_symbolic_curve", "new_control", "new_diameter_dimension", "convert_symbolic_to_model", "get_forms", "get_sketch_planes"]
                     },
                     "is_solid": {
                         "type": "boolean",
                         "description": "Whether to create solid (true) or void (false) geometry",
                         "default": True
+                    },
+                    "element_id": {
+                        "type": "integer",
+                        "description": "Element ID of symbolic curve to convert (for convert_symbolic_to_model operation)"
+                    },
+                    "element_ids": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Array of symbolic curve element IDs to convert to model curves (for convert_symbolic_to_model operation)"
                     },
                     "profile_points": {
                         "type": "array",
@@ -2698,7 +3165,7 @@ async def list_tools() -> list[Tool]:
                     "profile_curve_ids": {
                         "type": "array",
                         "items": {"type": "integer"},
-                        "description": "Element IDs of profile curves (for loft, cap, extrusion form)"
+                        "description": "Element IDs of existing profile curves (for new_extrusion, loft, cap, extrusion form). For new_extrusion, all curves will be collected into single array for one extrusion operation. Alternative to profile_points parameter."
                     },
                     "axis_line_id": {"type": "integer", "description": "Element ID of axis line (for revolve form)"},
                     "profile_curve_id": {"type": "integer", "description": "Element ID of profile curve (for revolve form)"},
@@ -2846,6 +3313,34 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
+        elif name == "export_image":
+            output_path = arguments.get("output_path")
+            file_type = arguments.get("file_type", "PNG")
+            dpi = arguments.get("dpi", 150)
+            zoom_type = arguments.get("zoom_type", "FitToPage")
+            zoom = arguments.get("zoom", 100)
+            fit_direction = arguments.get("fit_direction", "Horizontal")
+            export_range = arguments.get("export_range", "CurrentView")
+            view_ids = arguments.get("view_ids")
+            create_website = arguments.get("create_website", False)
+            
+            command_params = {
+                "output_path": output_path,
+                "file_type": file_type,
+                "dpi": dpi,
+                "zoom_type": zoom_type,
+                "zoom": zoom,
+                "fit_direction": fit_direction,
+                "export_range": export_range,
+                "create_website": create_website
+            }
+            
+            if view_ids is not None:
+                command_params["view_ids"] = view_ids
+                
+            result = await revit.send_command("export_image", command_params)
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
         elif name == "query_elements":
             filter_type = arguments.get("filter_type")
             criteria = arguments.get("criteria")
@@ -2864,12 +3359,30 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
         elif name == "get_selected_elements":
-            result = await revit.send_command("get_selected_elements", {})
+            operation = arguments.get("operation")
+            command_params = {}
+            if operation:
+                command_params["operation"] = operation
+            result = await revit.send_command("get_selected_elements", command_params)
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         elif name == "set_active_view":
+            operation = arguments.get("operation")
             view_type = arguments.get("view_type")
-            result = await revit.send_command("set_active_view", {"view_type": view_type})
+            view_name = arguments.get("view_name")
+            
+            # For project documents or 'by_type' operation, view_type is often used
+            # For family documents with 'by_name' operation, view_name is used
+            command_params = {}
+            
+            if operation:
+                command_params["operation"] = operation
+            if view_type:
+                command_params["view_type"] = view_type
+            if view_name:
+                command_params["view_name"] = view_name
+                
+            result = await revit.send_command("set_active_view", command_params)
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         elif name == "create_wall":
@@ -3320,6 +3833,68 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
+        elif name == "create_detail_shapes":
+            if not arguments.get("shape_type"):
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "shape_type is required (rectangle, circle, polygon)"})
+                )]
+            result = await revit.send_command("create_detail_shapes", {
+                "shape_type": arguments.get("shape_type"),
+                "center_x": arguments.get("center_x", 0),
+                "center_y": arguments.get("center_y", 0),
+                "center_z": arguments.get("center_z", 0),
+                "width": arguments.get("width", 5),
+                "height": arguments.get("height", 5),
+                "radius": arguments.get("radius", 5),
+                "sides": arguments.get("sides", 6),
+                "rotation": arguments.get("rotation", 0),
+                "view_id": arguments.get("view_id")
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "create_model_shapes":
+            if not arguments.get("shape_type"):
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "shape_type is required (rectangle, circle, polygon)"})
+                )]
+            result = await revit.send_command("create_model_shapes", {
+                "shape_type": arguments.get("shape_type"),
+                "center_x": arguments.get("center_x", 0),
+                "center_y": arguments.get("center_y", 0),
+                "center_z": arguments.get("center_z", 0),
+                "width": arguments.get("width", 5),
+                "height": arguments.get("height", 5),
+                "radius": arguments.get("radius", 5),
+                "sides": arguments.get("sides", 6),
+                "rotation": arguments.get("rotation", 0),
+                "plane_normal_x": arguments.get("plane_normal_x", 0),
+                "plane_normal_y": arguments.get("plane_normal_y", 0),
+                "plane_normal_z": arguments.get("plane_normal_z", 1)
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "create_symbolic_shapes":
+            if not arguments.get("shape_type"):
+                return [TextContent(
+                    type="text",
+                    text=json.dumps({"error": "shape_type is required (rectangle, circle, polygon)"})
+                )]
+            result = await revit.send_command("create_symbolic_shapes", {
+                "shape_type": arguments.get("shape_type"),
+                "center_x": arguments.get("center_x", 0),
+                "center_y": arguments.get("center_y", 0),
+                "center_z": arguments.get("center_z", 0),
+                "width": arguments.get("width", 5),
+                "height": arguments.get("height", 5),
+                "radius": arguments.get("radius", 5),
+                "sides": arguments.get("sides", 6),
+                "rotation": arguments.get("rotation", 0),
+                "sketch_plane_id": arguments.get("sketch_plane_id")
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
         elif name == "rotate_elements":
             # Validate that either element_id or element_ids is provided
             if arguments.get("element_id") is None and arguments.get("element_ids") is None:
@@ -3377,6 +3952,10 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
         
         elif name == "get_family_parameters":
             result = await revit.send_command("get_family_parameters", {})
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "detect_document_type":
+            result = await revit.send_command("detect_document_type", {})
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         elif name == "add_project_shared_parameter":
@@ -3530,7 +4109,11 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 "add_filter": arguments.get("add_filter"),
                 "clear_filters": arguments.get("clear_filters", False),
                 "add_sort_group": arguments.get("add_sort_group"),
-                "clear_sort_groups": arguments.get("clear_sort_groups", False)
+                "remove_sort_group": arguments.get("remove_sort_group"),
+                "clear_sort_groups": arguments.get("clear_sort_groups", False),
+                "format_field": arguments.get("format_field"),
+                "add_calculated_field": arguments.get("add_calculated_field"),
+                "reorder_field": arguments.get("reorder_field")
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
@@ -3762,13 +4345,51 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 "line_end_y": arguments.get("line_end_y", 0),
                 "line_end_z": arguments.get("line_end_z", 0),
                 "family_name": arguments.get("family_name"),
-                "category": arguments.get("category")
+                "category": arguments.get("category"),
+                "center_x": arguments.get("center_x", 0),
+                "center_y": arguments.get("center_y", 0),
+                "center_z": arguments.get("center_z", 0),
+                "width": arguments.get("width", 10),
+                "height": arguments.get("height", 5),
+                "radius": arguments.get("radius", 5),
+                "sides": arguments.get("sides", 6),
+                "segments": arguments.get("segments", 24)
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "load_and_place_family":
+            result = await revit.send_command("load_and_place_family", {
+                "operation": arguments.get("operation"),
+                "category": arguments.get("category"),
+                "include_system_families": arguments.get("include_system_families", False),
+                "family_name": arguments.get("family_name"),
+                "family_id": arguments.get("family_id"),
+                "file_path": arguments.get("file_path"),
+                "type_id": arguments.get("type_id"),
+                "type_name": arguments.get("type_name"),
+                "placement_method": arguments.get("placement_method", "point"),
+                "x": arguments.get("x", 0),
+                "y": arguments.get("y", 0),
+                "z": arguments.get("z", 0),
+                "structural_type": arguments.get("structural_type", "NonStructural"),
+                "view_id": arguments.get("view_id"),
+                "host_id": arguments.get("host_id"),
+                "face_element_id": arguments.get("face_element_id"),
+                "face_index": arguments.get("face_index", 0),
+                "line_start_x": arguments.get("line_start_x", 0),
+                "line_start_y": arguments.get("line_start_y", 0),
+                "line_start_z": arguments.get("line_start_z", 0),
+                "line_end_x": arguments.get("line_end_x", 10),
+                "line_end_y": arguments.get("line_end_y", 0),
+                "line_end_z": arguments.get("line_end_z", 0)
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
         elif name == "family_modeling_tool":
             result = await revit.send_command("family_modeling_tool", {
                 "operation": arguments.get("operation"),
+                "element_id": arguments.get("element_id"),
+                "element_ids": arguments.get("element_ids"),
                 "is_solid": arguments.get("is_solid", True),
                 "profile_points": arguments.get("profile_points"),
                 "bottom_profile_points": arguments.get("bottom_profile_points"),
