@@ -42,7 +42,7 @@ This MCP server provides a bridge between AI assistants and Autodesk Revit 2026,
 
 ## Prerequisites
 
-- Python 3.10 or higher
+- Python 3.10
 - Autodesk Revit 2026 installed
 - Windows operating system (required for Revit API)
 - .NET Framework 8.0
