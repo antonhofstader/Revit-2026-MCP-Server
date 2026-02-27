@@ -251,11 +251,16 @@ private object SetActiveView(UIApplication app, Dictionary<string, object> param
 | `export_to_ifc` | Export project to IFC | "Export to IFC4 format" |
 | `query_elements` | Advanced element queries | "Find all walls thicker than 8 inches" |
 | `cap_tool` | Create cap forms from points/lines | "Create cap form with 4 points" |
+| `create_detail_shapes` | Create shapes (rectangle, circle, polygon) as detail lines | "Create circle details on this view" |
+| `create_model_shapes` | Create shapes (rectangle, circle, polygon) as model lines | "Create rectangular outline in 3D" |
+| `create_symbolic_shapes` | Create shapes (rectangle, circle, polygon) as symbolic lines | "Create hexagon symbols in family" |
 | `extrusion_tool` | Create extrusion forms with direction | "Extrude profile 15 feet up" |
 | `plane_tool` | Create sketch planes in World XYZ | "Create XY plane at Z=10" |
 | `model_curve_tool` | Draw curves with math formulas | "Draw sine wave z=sin(x)" |
 | `divided_surface_tool` | Create divided surfaces on forms | "Divide form face into 10x8 grid" |
 | `dimension_tool` | Create linear dimensions | "Dimension between these two walls" |
+| `family_manager_tool` | Manage family types, parameters, formulas | "Create new family type called 'Type A'" |
+| `application_document_tool` | Create new documents from templates | "Create new family from Metric Generic Model template" |
 
 ## Available Resources
 

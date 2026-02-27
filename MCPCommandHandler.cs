@@ -12,6 +12,7 @@ using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Electrical;
 using Autodesk.Revit.DB.Plumbing;
+using Autodesk.Revit.DB.Analysis;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 
@@ -302,10 +303,6 @@ namespace RevitMCPAddin
                         result = TaskDialogTool(app, doc, _currentRequest.Parameters);
                         break;
 
-                    case "ribbon_tool":
-                        result = RibbonTool(app, doc, _currentRequest.Parameters);
-                        break;
-
                     case "family_points_tool":
                         result = FamilyPointsTool(app, doc, _currentRequest.Parameters);
                         break;
@@ -346,8 +343,20 @@ namespace RevitMCPAddin
                         result = FamilyModelingTool(app, doc, _currentRequest.Parameters);
                         break;
 
+                    case "family_manager_tool":
+                        result = FamilyManagerTool(doc, _currentRequest.Parameters);
+                        break;
+
+                    case "application_document_tool":
+                        result = ApplicationDocumentTool(app, _currentRequest.Parameters);
+                        break;
+
                     case "load_and_place_family":
                         result = LoadAndPlaceFamily(app, doc, _currentRequest.Parameters);
+                        break;
+
+                    case "load_family_tool":
+                        result = LoadFamilyTool(doc, _currentRequest.Parameters);
                         break;
 
                     case "connector_tool":
@@ -4542,6 +4551,1262 @@ namespace RevitMCPAddin
         }
 
         /// <summary>
+        /// Comprehensive Family Manager Tool - manage family types, parameters, formulas, and element type associations
+        /// </summary>
+        private object FamilyManagerTool(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!doc.IsFamilyDocument)
+            {
+                return new { success = false, error = "This tool requires a family document. Open a family (.rfa) file." };
+            }
+
+            string operation = parameters.ContainsKey("operation") ? parameters["operation"]?.ToString()?.ToLower() : null;
+            if (string.IsNullOrEmpty(operation))
+            {
+                return new { success = false, error = "operation is required" };
+            }
+
+            try
+            {
+                switch (operation)
+                {
+                    case "create_type":
+                        return CreateFamilyType(doc, parameters);
+
+                    case "delete_type":
+                        return DeleteFamilyType(doc, parameters);
+
+                    case "rename_type":
+                        return RenameFamilyType(doc, parameters);
+
+                    case "set_current_type":
+                        return SetCurrentFamilyType(doc, parameters);
+
+                    case "get_family_types":
+                        return GetFamilyTypes(doc);
+
+                    case "set_parameter_value":
+                        return SetFamilyParameterValue(doc, parameters);
+
+                    case "add_formula":
+                        return AddParameterFormula(doc, parameters);
+
+                    case "get_formula":
+                        return GetParameterFormula(doc, parameters);
+
+                    case "associate_element_parameter":
+                        return AssociateElementParameterToFamilyParameter(doc, parameters);
+
+                    case "dissociate_element_parameter":
+                        return DissociateElementParameter(doc, parameters);
+
+                    case "get_family_parameter_info":
+                        return GetFamilyParameterInfo(doc, parameters);
+
+                    case "get_all_family_parameters":
+                        return GetAllFamilyParametersInfo(doc);
+
+                    case "get_family_category":
+                        return GetFamilyCategory(doc);
+
+                    default:
+                        return new { success = false, error = $"Unknown operation: {operation}" };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Associate an element parameter to a family parameter - creates a dynamic binding
+        /// so the family parameter gets its value from the associated element parameter.
+        /// This binds a parameter from an element in the family (like a reference plane or nested family)
+        /// to a family parameter.
+        /// </summary>
+        private object AssociateElementParameterToFamilyParameter(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("family_parameter_name") || parameters["family_parameter_name"] == null)
+            {
+                return new { success = false, error = "family_parameter_name is required" };
+            }
+
+            if (!parameters.ContainsKey("element_id") || parameters["element_id"] == null)
+            {
+                return new { success = false, error = "element_id is required (ID of element in family containing the parameter)" };
+            }
+
+            if (!parameters.ContainsKey("element_parameter_name") || parameters["element_parameter_name"] == null)
+            {
+                return new { success = false, error = "element_parameter_name is required (name of parameter on the element to bind)" };
+            }
+
+            string familyParameterName = parameters["family_parameter_name"].ToString();
+            int elementIdInt = Convert.ToInt32(parameters["element_id"]);
+            string elementParameterName = parameters["element_parameter_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the family parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(familyParameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Parameter '{familyParameterName}' not found" };
+            }
+
+            // Get the element in the family
+            ElementId elementId = new ElementId(elementIdInt);
+            Element element = doc.GetElement(elementId);
+            if (element == null)
+            {
+                return new { success = false, error = $"Element with ID {elementIdInt} not found in family" };
+            }
+
+            // Get the parameter from the element
+            Parameter elementParameter = null;
+            foreach (Parameter param in element.Parameters)
+            {
+                if (param.Definition.Name.Equals(elementParameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    elementParameter = param;
+                    break;
+                }
+            }
+
+            if (elementParameter == null)
+            {
+                return new { success = false, error = $"Parameter '{elementParameterName}' not found on element {element.Name} (ID: {elementIdInt})" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Associate Element Parameter"))
+            {
+                trans.Start();
+
+                try
+                {
+                    // Use the correct Revit API method with Parameter object
+                    familyManager.AssociateElementParameterToFamilyParameter(elementParameter, familyParam);
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        family_parameter_name = familyParameterName,
+                        element_name = element.Name,
+                        element_id = elementIdInt,
+                        element_parameter_name = elementParameterName,
+                        element_parameter_type = elementParameter.StorageType.ToString(),
+                        message = $"Successfully associated element parameter '{elementParameterName}' from element '{element.Name}' to family parameter '{familyParameterName}'. The family parameter will now dynamically reference this element parameter."
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to associate element parameter: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dissociate (unbind) an element parameter from a family parameter
+        /// Note: This method may not be available in Revit 2026 API
+        /// </summary>
+        private object DissociateElementParameter(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("family_parameter_name") || parameters["family_parameter_name"] == null)
+            {
+                return new { success = false, error = "family_parameter_name is required" };
+            }
+
+            string familyParameterName = parameters["family_parameter_name"].ToString();
+
+            // Check if method exists using reflection
+            Type fmType = typeof(FamilyManager);
+            var method = fmType.GetMethod("DissociateElementParameterFromFamilyParameter");
+            
+            if (method == null)
+            {
+                return new { 
+                    success = false, 
+                    error = "DissociateElementParameterFromFamilyParameter method is not available in Revit 2026 API.",
+                    workaround = "To unbind a parameter, you can delete and recreate the family parameter, or manually reset the association by associating with a different element parameter."
+                };
+            }
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the family parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(familyParameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Family parameter '{familyParameterName}' not found" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Dissociate Element Parameter"))
+            {
+                trans.Start();
+
+                try
+                {
+                    // Try calling the method via reflection if it exists
+                    method.Invoke(familyManager, new object[] { familyParam });
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        family_parameter_name = familyParameterName,
+                        message = $"Successfully dissociated element parameter binding from family parameter '{familyParameterName}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to dissociate: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get comprehensive information about a specific FamilyParameter including all properties
+        /// </summary>
+        private object GetFamilyParameterInfo(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("parameter_name") || parameters["parameter_name"] == null)
+            {
+                return new { success = false, error = "parameter_name is required" };
+            }
+
+            string parameterName = parameters["parameter_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' not found" };
+            }
+
+            try
+            {
+                // Get comprehensive FamilyParameter information using only available properties
+                var paramInfo = new Dictionary<string, object>
+                {
+                    { "success", true },
+                    { "parameter_name", parameterName },
+                    { "definition_name", familyParam.Definition.Name },
+                    
+                    // Core properties that exist in Revit 2026
+                    { "storage_type", familyParam.StorageType.ToString() },
+                    { "is_instance", familyParam.IsInstance },
+                    { "is_shared", familyParam.IsShared },
+                    { "is_read_only", familyParam.IsReadOnly },
+                    { "is_reporting", familyParam.IsReporting },
+                    
+                    // Formula properties
+                    { "can_assign_formula", familyParam.CanAssignFormula },
+                    { "is_determined_by_formula", familyParam.IsDeterminedByFormula },
+                    { "formula", familyParam.Formula ?? "" },
+                    
+                    // GUID for shared parameters
+                    { "guid", familyParam.GUID.ToString() }
+                };
+
+                // Try to get InternalDefinition for additional properties
+                try
+                {
+                    if (familyParam.Definition is InternalDefinition internalDef)
+                    {
+                        paramInfo["builtin_parameter"] = internalDef.BuiltInParameter.ToString();
+                    }
+                }
+                catch { }
+
+                // Get current value if CurrentType exists
+                if (familyManager.CurrentType != null)
+                {
+                    try
+                    {
+                        switch (familyParam.StorageType)
+                        {
+                            case StorageType.Double:
+                                var doubleVal = familyManager.CurrentType.AsDouble(familyParam);
+                                paramInfo["current_value_internal"] = doubleVal;
+                                paramInfo["current_value_display"] = familyManager.CurrentType.AsValueString(familyParam);
+                                break;
+                            case StorageType.Integer:
+                                var intVal = familyManager.CurrentType.AsInteger(familyParam);
+                                paramInfo["current_value"] = intVal;
+                                break;
+                            case StorageType.String:
+                                paramInfo["current_value"] = familyManager.CurrentType.AsString(familyParam);
+                                break;
+                            case StorageType.ElementId:
+                                var elemId = familyManager.CurrentType.AsElementId(familyParam);
+                                paramInfo["current_value_element_id"] = GetElementIdInt(elemId);
+                                Element elem = doc.GetElement(elemId);
+                                paramInfo["current_value_element_name"] = elem?.Name ?? "None";
+                                break;
+                        }
+                    }
+                    catch
+                    {
+                        paramInfo["current_value"] = "Unable to retrieve";
+                    }
+                }
+
+                return paramInfo;
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Error getting parameter info: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Get comprehensive information about all family parameters
+        /// </summary>
+        private object GetAllFamilyParametersInfo(Document doc)
+        {
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            try
+            {
+                var parametersList = new List<Dictionary<string, object>>();
+
+                foreach (FamilyParameter fp in familyManager.Parameters)
+                {
+                    var paramInfo = new Dictionary<string, object>
+                    {
+                        { "name", fp.Definition.Name },
+                        { "storage_type", fp.StorageType.ToString() },
+                        { "is_instance", fp.IsInstance },
+                        { "is_shared", fp.IsShared },
+                        { "is_read_only", fp.IsReadOnly },
+                        { "is_reporting", fp.IsReporting },
+                        { "can_assign_formula", fp.CanAssignFormula },
+                        { "is_determined_by_formula", fp.IsDeterminedByFormula }
+                    };
+
+                    // Try to get InternalDefinition properties
+                    try
+                    {
+                        if (fp.Definition is InternalDefinition internalDef)
+                        {
+                            paramInfo["builtin_parameter"] = internalDef.BuiltInParameter.ToString();
+                        }
+                    }
+                    catch { }
+
+                    if (fp.IsDeterminedByFormula)
+                    {
+                        paramInfo["formula"] = fp.Formula;
+                    }
+
+                    // Get current value if available
+                    if (familyManager.CurrentType != null)
+                    {
+                        try
+                        {
+                            switch (fp.StorageType)
+                            {
+                                case StorageType.Double:
+                                    paramInfo["current_value_display"] = familyManager.CurrentType.AsValueString(fp);
+                                    break;
+                                case StorageType.Integer:
+                                    paramInfo["current_value"] = familyManager.CurrentType.AsInteger(fp);
+                                    break;
+                                case StorageType.String:
+                                    paramInfo["current_value"] = familyManager.CurrentType.AsString(fp);
+                                    break;
+                                case StorageType.ElementId:
+                                    var elemId = familyManager.CurrentType.AsElementId(fp);
+                                    int id = GetElementIdInt(elemId);
+                                    if (id > 0)
+                                    {
+                                        Element elem = doc.GetElement(elemId);
+                                        paramInfo["current_value_element_id"] = id;
+                                        paramInfo["current_value_element_name"] = elem?.Name;
+                                    }
+                                    break;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    parametersList.Add(paramInfo);
+                }
+
+                return new
+                {
+                    success = true,
+                    family_name = doc.Title,
+                    current_type = familyManager.CurrentType?.Name,
+                    parameter_count = parametersList.Count,
+                    parameters = parametersList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Error getting family parameters: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Create a new family type
+        /// </summary>
+        private object CreateFamilyType(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("type_name") || parameters["type_name"] == null)
+            {
+                return new { success = false, error = "type_name is required" };
+            }
+
+            string typeName = parameters["type_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Check if type already exists
+            foreach (FamilyType ft in familyManager.Types)
+            {
+                if (ft.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new { success = false, error = $"Family type '{typeName}' already exists" };
+                }
+            }
+
+            using (Transaction trans = new Transaction(doc, "Create Family Type"))
+            {
+                trans.Start();
+
+                try
+                {
+                    FamilyType newType = familyManager.NewType(typeName);
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        type_name = newType.Name,
+                        message = $"Successfully created family type '{typeName}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to create family type: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Delete a family type (must not be current type)
+        /// </summary>
+        private object DeleteFamilyType(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("type_name") || parameters["type_name"] == null)
+            {
+                return new { success = false, error = "type_name is required" };
+            }
+
+            string typeName = parameters["type_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the type
+            FamilyType typeToDelete = null;
+            foreach (FamilyType ft in familyManager.Types)
+            {
+                if (ft.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+                {
+                    typeToDelete = ft;
+                    break;
+                }
+            }
+
+            if (typeToDelete == null)
+            {
+                return new { success = false, error = $"Family type '{typeName}' not found" };
+            }
+
+            // Check if it's the current type
+            if (familyManager.CurrentType != null && familyManager.CurrentType.Name == typeName)
+            {
+                return new { success = false, error = $"Cannot delete current type '{typeName}'. Switch to another type first." };
+            }
+
+            // Check if it's the only type
+            if (familyManager.Types.Size <= 1)
+            {
+                return new { success = false, error = "Cannot delete the only family type. At least one type must exist." };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Delete Family Type"))
+            {
+                trans.Start();
+
+                try
+                {
+                    // Make sure we're not deleting the current type by switching to another one first
+                    if (familyManager.CurrentType != null && familyManager.CurrentType.Name == typeToDelete.Name)
+                    {
+                        FamilyType otherType = null;
+                        foreach (FamilyType ft in familyManager.Types)
+                        {
+                            if (ft.Name != typeToDelete.Name)
+                            {
+                                otherType = ft;
+                                break;
+                            }
+                        }
+                        if (otherType != null)
+                        {
+                            familyManager.CurrentType = otherType;
+                        }
+                    }
+
+                    // Delete the family type - there is no direct delete method, we need to use doc.Delete
+                    // However, family types are not deletable via doc.Delete in Revit API
+                    // We need use a different approach - just return error for now
+                    trans.RollBack();
+                    
+                    return new
+                    {
+                        success = false,
+                        error = "Deleting family types is not supported in the Revit API. As a workaround, rename unwanted types to mark them as deprecated."
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to delete family type: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Rename the current family type
+        /// </summary>
+        private object RenameFamilyType(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("new_name") || parameters["new_name"] == null)
+            {
+                return new { success = false, error = "new_name is required" };
+            }
+
+            string newName = parameters["new_name"].ToString();
+            string oldName = parameters.ContainsKey("old_name") && parameters["old_name"] != null 
+                ? parameters["old_name"].ToString() 
+                : null;
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Check if new name already exists
+            foreach (FamilyType ft in familyManager.Types)
+            {
+                if (ft.Name.Equals(newName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new { success = false, error = $"Family type '{newName}' already exists" };
+                }
+            }
+
+            using (Transaction trans = new Transaction(doc, "Rename Family Type"))
+            {
+                trans.Start();
+
+                try
+                {
+                    string actualOldName = null;
+
+                    if (!string.IsNullOrEmpty(oldName))
+                    {
+                        // Find and set the specified type as current
+                        FamilyType typeToRename = null;
+                        foreach (FamilyType ft in familyManager.Types)
+                        {
+                            if (ft.Name.Equals(oldName, StringComparison.OrdinalIgnoreCase))
+                            {
+                                typeToRename = ft;
+                                break;
+                            }
+                        }
+
+                        if (typeToRename == null)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = $"Family type '{oldName}' not found" };
+                        }
+
+                        familyManager.CurrentType = typeToRename;
+                        actualOldName = typeToRename.Name;
+                    }
+                    else
+                    {
+                        // Rename current type
+                        if (familyManager.CurrentType == null)
+                        {
+                            trans.RollBack();
+                            return new { success = false, error = "No current type to rename. Specify old_name parameter." };
+                        }
+                        actualOldName = familyManager.CurrentType.Name;
+                    }
+
+                    familyManager.RenameCurrentType(newName);
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        old_name = actualOldName,
+                        new_name = newName,
+                        message = $"Successfully renamed type from '{actualOldName}' to '{newName}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to rename family type: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Set the current family type
+        /// </summary>
+        private object SetCurrentFamilyType(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("type_name") || parameters["type_name"] == null)
+            {
+                return new { success = false, error = "type_name is required" };
+            }
+
+            string typeName = parameters["type_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the type
+            FamilyType targetType = null;
+            foreach (FamilyType ft in familyManager.Types)
+            {
+                if (ft.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetType = ft;
+                    break;
+                }
+            }
+
+            if (targetType == null)
+            {
+                return new { success = false, error = $"Family type '{typeName}' not found" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Set Current Family Type"))
+            {
+                trans.Start();
+
+                try
+                {
+                    string previousType = familyManager.CurrentType?.Name;
+                    familyManager.CurrentType = targetType;
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        previous_type = previousType,
+                        current_type = typeName,
+                        message = $"Successfully switched to family type '{typeName}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to set current type: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get all family types
+        /// </summary>
+        private object GetFamilyTypes(Document doc)
+        {
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            var typesList = new List<object>();
+            string currentTypeName = familyManager.CurrentType?.Name;
+
+            foreach (FamilyType ft in familyManager.Types)
+            {
+                typesList.Add(new
+                {
+                    name = ft.Name,
+                    is_current = ft.Name == currentTypeName
+                });
+            }
+
+            return new
+            {
+                success = true,
+                type_count = typesList.Count,
+                current_type = currentTypeName,
+                types = typesList
+            };
+        }
+
+        /// <summary>
+        /// Set a parameter value for the current family type
+        /// </summary>
+        private object SetFamilyParameterValue(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("parameter_name") || parameters["parameter_name"] == null)
+            {
+                return new { success = false, error = "parameter_name is required" };
+            }
+
+            if (!parameters.ContainsKey("value"))
+            {
+                return new { success = false, error = "value is required" };
+            }
+
+            string parameterName = parameters["parameter_name"].ToString();
+            object value = parameters["value"];
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            if (familyManager.CurrentType == null)
+            {
+                return new { success = false, error = "No current family type. Create or select a type first." };
+            }
+
+            // Find the parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' not found" };
+            }
+
+            if (familyParam.IsReadOnly)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' is read-only" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Set Parameter Value"))
+            {
+                trans.Start();
+
+                try
+                {
+                    switch (familyParam.StorageType)
+                    {
+                        case StorageType.Double:
+                            double doubleValue = Convert.ToDouble(value);
+                            familyManager.Set(familyParam, doubleValue);
+                            break;
+
+                        case StorageType.Integer:
+                            int intValue = Convert.ToInt32(value);
+                            familyManager.Set(familyParam, intValue);
+                            break;
+
+                        case StorageType.String:
+                            string stringValue = value.ToString();
+                            familyManager.Set(familyParam, stringValue);
+                            break;
+
+                        case StorageType.ElementId:
+                            int elemIdValue = Convert.ToInt32(value);
+                            ElementId elementId = new ElementId(elemIdValue);
+                            familyManager.Set(familyParam, elementId);
+                            break;
+
+                        default:
+                            trans.RollBack();
+                            return new { success = false, error = $"Unsupported storage type: {familyParam.StorageType}" };
+                    }
+
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        parameter_name = parameterName,
+                        value = value,
+                        storage_type = familyParam.StorageType.ToString(),
+                        family_type = familyManager.CurrentType.Name,
+                        message = $"Successfully set parameter '{parameterName}' to '{value}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to set parameter value: {ex.Message}" };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Add or update a formula for a family parameter
+        /// </summary>
+        private object AddParameterFormula(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("parameter_name") || parameters["parameter_name"] == null)
+            {
+                return new { success = false, error = "parameter_name is required" };
+            }
+
+            if (!parameters.ContainsKey("formula") || parameters["formula"] == null)
+            {
+                return new { success = false, error = "formula is required" };
+            }
+
+            string parameterName = parameters["parameter_name"].ToString();
+            string formula = parameters["formula"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' not found" };
+            }
+
+            if (!familyParam.CanAssignFormula)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' cannot have a formula assigned" };
+            }
+
+            using (Transaction trans = new Transaction(doc, "Add Parameter Formula"))
+            {
+                trans.Start();
+
+                try
+                {
+                    familyManager.SetFormula(familyParam, formula);
+                    trans.Commit();
+
+                    return new
+                    {
+                        success = true,
+                        parameter_name = parameterName,
+                        formula = formula,
+                        message = $"Successfully set formula for parameter '{parameterName}'"
+                    };
+                }
+                catch (Exception ex)
+                {
+                    trans.RollBack();
+                    return new { success = false, error = $"Failed to set formula: {ex.Message}. Check formula syntax." };
+                }
+            }
+        }
+
+        /// <summary>
+        /// Get the formula for a family parameter
+        /// </summary>
+        private object GetParameterFormula(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("parameter_name") || parameters["parameter_name"] == null)
+            {
+                return new { success = false, error = "parameter_name is required" };
+            }
+
+            string parameterName = parameters["parameter_name"].ToString();
+
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            // Find the parameter
+            FamilyParameter familyParam = null;
+            foreach (FamilyParameter fp in familyManager.Parameters)
+            {
+                if (fp.Definition.Name.Equals(parameterName, StringComparison.OrdinalIgnoreCase))
+                {
+                    familyParam = fp;
+                    break;
+                }
+            }
+
+            if (familyParam == null)
+            {
+                return new { success = false, error = $"Parameter '{parameterName}' not found" };
+            }
+
+            // Get formula from the FamilyParameter.Formula property
+            string formula = familyParam.Formula;
+            bool hasFormula = !string.IsNullOrEmpty(formula);
+
+            return new
+            {
+                success = true,
+                parameter_name = parameterName,
+                has_formula = hasFormula,
+                formula = formula ?? "",
+                can_assign_formula = familyParam.CanAssignFormula,
+                is_determined_by_formula = familyParam.IsDeterminedByFormula
+            };
+        }
+
+        /// <summary>
+        /// Get the family category
+        /// </summary>
+        private object GetFamilyCategory(Document doc)
+        {
+            FamilyManager familyManager = doc.FamilyManager;
+            if (familyManager == null)
+            {
+                return new { success = false, error = "Could not access FamilyManager" };
+            }
+
+            try
+            {
+                Category familyCategory = doc.OwnerFamily.FamilyCategory;
+                
+                if (familyCategory == null)
+                {
+                    return new
+                    {
+                        success = true,
+                        has_category = false,
+                        category_name = "None (Generic Model or Conceptual Mass)",
+                        message = "Family has no specific category assigned"
+                    };
+                }
+
+                return new
+                {
+                    success = true,
+                    has_category = true,
+                    category_name = familyCategory.Name,
+                    category_id = GetElementIdInt(familyCategory.Id),
+                    parent_category = familyCategory.Parent?.Name,
+                    allows_bounds = familyCategory.AllowsBoundParameters,
+                    has_material_quantities = familyCategory.HasMaterialQuantities
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to get family category: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Application Document Tool - Create new family or project documents from templates
+        /// Uses the Application class to create new documents
+        /// </summary>
+        private object ApplicationDocumentTool(UIApplication app, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("operation") || parameters["operation"] == null)
+            {
+                return new { success = false, error = "operation is required" };
+            }
+
+            string operation = parameters["operation"].ToString().ToLower();
+
+            try
+            {
+                switch (operation)
+                {
+                    case "new_family_document":
+                        return CreateNewFamilyDocument(app, parameters);
+
+                    case "new_project_document":
+                        return CreateNewProjectDocument(app, parameters);
+
+                    default:
+                        return new { success = false, error = $"Unknown operation: {operation}" };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Create a new family document from a template
+        /// </summary>
+        private object CreateNewFamilyDocument(UIApplication app, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("template_path") || parameters["template_path"] == null)
+            {
+                return new { success = false, error = "template_path is required (path to family template file .rft, or just filename to search in default templates folder)" };
+            }
+
+            string templatePath = parameters["template_path"].ToString();
+            string resolvedTemplatePath = null;
+
+            // Check if it's an absolute path and file exists
+            if (System.IO.File.Exists(templatePath))
+            {
+                resolvedTemplatePath = templatePath;
+            }
+            else
+            {
+                // Search in default Revit family templates folder
+                string defaultTemplatesPath = @"C:\ProgramData\Autodesk\RVT 2026\Family Templates";
+                
+                if (System.IO.Directory.Exists(defaultTemplatesPath))
+                {
+                    // Try to find the template file
+                    // Check if it's just a filename
+                    string fileName = System.IO.Path.GetFileName(templatePath);
+                    
+                    // Search in all subdirectories (English, Metric, etc.)
+                    var foundFiles = System.IO.Directory.GetFiles(defaultTemplatesPath, fileName, System.IO.SearchOption.AllDirectories);
+                    
+                    if (foundFiles.Length > 0)
+                    {
+                        resolvedTemplatePath = foundFiles[0]; // Use first match
+                    }
+                    else if (!fileName.EndsWith(".rft", StringComparison.OrdinalIgnoreCase) && 
+                             !fileName.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Try adding .rft extension
+                        foundFiles = System.IO.Directory.GetFiles(defaultTemplatesPath, fileName + ".rft", System.IO.SearchOption.AllDirectories);
+                        if (foundFiles.Length > 0)
+                        {
+                            resolvedTemplatePath = foundFiles[0];
+                        }
+                    }
+                }
+            }
+
+            // If still not found, return error
+            if (string.IsNullOrEmpty(resolvedTemplatePath))
+            {
+                return new { 
+                    success = false, 
+                    error = $"Template file not found: {templatePath}",
+                    hint = @"Provide full path or just filename. Default search location: C:\ProgramData\Autodesk\RVT 2026\Family Templates",
+                    example = "Use 'Metric Generic Model.rft' or 'C:\\Full\\Path\\To\\Template.rft'"
+                };
+            }
+
+            // Verify it's a template file
+            string extension = System.IO.Path.GetExtension(resolvedTemplatePath).ToLower();
+            if (extension != ".rft" && extension != ".rfa")
+            {
+                return new { success = false, error = $"Invalid template file extension '{extension}'. Expected .rft or .rfa" };
+            }
+
+            try
+            {
+                // Create new family document from template
+                Document newFamilyDoc = app.Application.NewFamilyDocument(resolvedTemplatePath);
+
+                if (newFamilyDoc == null)
+                {
+                    return new { success = false, error = "Failed to create new family document" };
+                }
+
+                return new
+                {
+                    success = true,
+                    document_title = newFamilyDoc.Title,
+                    document_path = newFamilyDoc.PathName ?? "Not saved yet",
+                    template_path = resolvedTemplatePath,
+                    template_input = templatePath,
+                    is_family = newFamilyDoc.IsFamilyDocument,
+                    message = $"Successfully created new family document from template: {System.IO.Path.GetFileName(resolvedTemplatePath)}"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to create family document: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Create a new project document from a template
+        /// </summary>
+        private object CreateNewProjectDocument(UIApplication app, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("template_path") || parameters["template_path"] == null)
+            {
+                return new { success = false, error = "template_path is required (path to project template file .rte or .rvt, or just filename to search in default templates folder)" };
+            }
+
+            string templatePath = parameters["template_path"].ToString();
+            string resolvedTemplatePath = null;
+
+            // Check if it's an absolute path and file exists
+            if (System.IO.File.Exists(templatePath))
+            {
+                resolvedTemplatePath = templatePath;
+            }
+            else
+            {
+                // Search in default Revit project templates folder
+                string defaultTemplatesPath = @"C:\ProgramData\Autodesk\RVT 2026\Templates";
+                
+                if (System.IO.Directory.Exists(defaultTemplatesPath))
+                {
+                    // Try to find the template file
+                    // Check if it's just a filename
+                    string fileName = System.IO.Path.GetFileName(templatePath);
+                    
+                    // Search in all subdirectories
+                    var foundFiles = System.IO.Directory.GetFiles(defaultTemplatesPath, fileName, System.IO.SearchOption.AllDirectories);
+                    
+                    if (foundFiles.Length > 0)
+                    {
+                        resolvedTemplatePath = foundFiles[0]; // Use first match
+                    }
+                    else if (!fileName.EndsWith(".rte", StringComparison.OrdinalIgnoreCase) && 
+                             !fileName.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Try adding .rte extension
+                        foundFiles = System.IO.Directory.GetFiles(defaultTemplatesPath, fileName + ".rte", System.IO.SearchOption.AllDirectories);
+                        if (foundFiles.Length > 0)
+                        {
+                            resolvedTemplatePath = foundFiles[0];
+                        }
+                    }
+                }
+            }
+
+            // If still not found, return error
+            if (string.IsNullOrEmpty(resolvedTemplatePath))
+            {
+                return new { 
+                    success = false, 
+                    error = $"Template file not found: {templatePath}",
+                    hint = @"Provide full path or just filename. Default search location: C:\ProgramData\Autodesk\RVT 2026\Templates",
+                    example = "Use 'Commercial-Default.rte' or 'C:\\Full\\Path\\To\\Template.rte'"
+                };
+            }
+
+            // Verify it's a template file
+            string extension = System.IO.Path.GetExtension(resolvedTemplatePath).ToLower();
+            if (extension != ".rte" && extension != ".rvt")
+            {
+                return new { success = false, error = $"Invalid template file extension '{extension}'. Expected .rte or .rvt" };
+            }
+
+            try
+            {
+                // Create new project document from template
+                Document newProjectDoc = app.Application.NewProjectDocument(resolvedTemplatePath);
+
+                if (newProjectDoc == null)
+                {
+                    return new { success = false, error = "Failed to create new project document" };
+                }
+
+                return new
+                {
+                    success = true,
+                    document_title = newProjectDoc.Title,
+                    document_path = newProjectDoc.PathName ?? "Not saved yet",
+                    template_path = resolvedTemplatePath,
+                    template_input = templatePath,
+                    is_family = newProjectDoc.IsFamilyDocument,
+                    message = $"Successfully created new project document from template: {System.IO.Path.GetFileName(resolvedTemplatePath)}"
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to create project document: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
         /// Detect whether the current document is a family (.rfa) or a project document (.rvt)
         /// </summary>
         private object DetectDocumentType(Document doc)
@@ -8629,651 +9894,6 @@ namespace RevitMCPAddin
             }
         }
 
-        /// <summary>
-        /// Ribbon tool - create and manage Revit Ribbon UI elements
-        /// </summary>
-        private object RibbonTool(UIApplication uiApp, Document doc, Dictionary<string, object> parameters)
-        {
-            UIControlledApplication uiControlledApp = Application.UIControlledApp;
-            if (uiControlledApp == null)
-            {
-                return new { success = false, error = "UIControlledApplication not available. Ribbon operations require application startup context." };
-            }
-
-            string operation = parameters.ContainsKey("operation") ? parameters["operation"]?.ToString()?.ToLower() : null;
-            if (string.IsNullOrEmpty(operation))
-            {
-                return new { success = false, error = "operation is required" };
-            }
-
-            try
-            {
-                switch (operation)
-                {
-                    case "create_tab":
-                        return CreateRibbonTab(uiControlledApp, parameters);
-
-                    case "create_panel":
-                        return CreateRibbonPanel(uiControlledApp, parameters);
-
-                    case "create_push_button":
-                        return CreatePushButton(uiControlledApp, parameters);
-
-                    case "create_split_button":
-                        return CreateSplitButton(uiControlledApp, parameters);
-
-                    case "create_pulldown_button":
-                        return CreatePulldownButton(uiControlledApp, parameters);
-
-                    case "create_combo_box":
-                        return CreateComboBox(uiControlledApp, parameters);
-
-                    case "create_text_box":
-                        return CreateTextBox(uiControlledApp, parameters);
-
-                    case "create_stacked_items":
-                        return CreateStackedItems(uiControlledApp, parameters);
-
-                    case "list_tabs":
-                        return ListRibbonTabs(uiControlledApp);
-
-                    case "list_panels":
-                        return ListRibbonPanels(uiControlledApp, parameters);
-
-                    case "get_panel_items":
-                        return GetPanelItems(uiControlledApp, parameters);
-
-                    case "get_image_folder":
-                        return GetImageFolderInfo(parameters);
-
-                    case "list_images":
-                        return ListImagesInFolder(parameters);
-
-                    default:
-                        return new { success = false, error = $"Unknown ribbon operation: {operation}" };
-                }
-            }
-            catch (Exception ex)
-            {
-                return new { success = false, error = ex.Message };
-            }
-        }
-
-        private object CreateRibbonTab(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            if (string.IsNullOrEmpty(tabName))
-            {
-                return new { success = false, error = "tab_name is required" };
-            }
-
-            try
-            {
-                app.CreateRibbonTab(tabName);
-                return new { success = true, message = $"Tab '{tabName}' created successfully" };
-            }
-            catch (Autodesk.Revit.Exceptions.ArgumentException)
-            {
-                return new { success = false, error = $"Tab '{tabName}' already exists" };
-            }
-        }
-
-        private object CreateRibbonPanel(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName))
-            {
-                return new { success = false, error = "panel_name is required" };
-            }
-
-            try
-            {
-                RibbonPanel panel;
-                if (!string.IsNullOrEmpty(tabName))
-                {
-                    panel = app.CreateRibbonPanel(tabName, panelName);
-                }
-                else
-                {
-                    panel = app.CreateRibbonPanel(panelName);
-                }
-
-                return new
-                {
-                    success = true,
-                    message = $"Panel '{panelName}' created successfully",
-                    panelName = panel.Name,
-                    tabName = tabName ?? "Add-Ins"
-                };
-            }
-            catch (Exception ex)
-            {
-                return new { success = false, error = ex.Message };
-            }
-        }
-
-        private RibbonPanel GetRibbonPanel(UIControlledApplication app, string tabName, string panelName)
-        {
-            try
-            {
-                IList<RibbonPanel> panels;
-                if (!string.IsNullOrEmpty(tabName))
-                {
-                    panels = app.GetRibbonPanels(tabName);
-                }
-                else
-                {
-                    panels = app.GetRibbonPanels();
-                }
-
-                return panels?.FirstOrDefault(p => p.Name == panelName);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private object CreatePushButton(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-            string buttonName = parameters.ContainsKey("button_name") ? parameters["button_name"]?.ToString() : null;
-            string buttonText = parameters.ContainsKey("button_text") ? parameters["button_text"]?.ToString() : null;
-            string className = parameters.ContainsKey("class_name") ? parameters["class_name"]?.ToString() : null;
-            string tooltip = parameters.ContainsKey("tooltip") ? parameters["tooltip"]?.ToString() : null;
-            string longDescription = parameters.ContainsKey("long_description") ? parameters["long_description"]?.ToString() : null;
-            string largeImagePath = parameters.ContainsKey("large_image") ? parameters["large_image"]?.ToString() : null;
-            string smallImagePath = parameters.ContainsKey("small_image") ? parameters["small_image"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName) || string.IsNullOrEmpty(buttonName) || string.IsNullOrEmpty(buttonText))
-            {
-                return new { success = false, error = "panel_name, button_name, and button_text are required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            // Use current assembly if no class specified
-            string assemblyPath = typeof(Application).Assembly.Location;
-            string commandClass = className ?? typeof(MCPStatusCommand).FullName;
-
-            PushButtonData buttonData = new PushButtonData(buttonName, buttonText, assemblyPath, commandClass);
-
-            PushButton button = panel.AddItem(buttonData) as PushButton;
-            if (button != null)
-            {
-                if (!string.IsNullOrEmpty(tooltip))
-                    button.ToolTip = tooltip;
-                if (!string.IsNullOrEmpty(longDescription))
-                    button.LongDescription = longDescription;
-                
-                // Set large image (32x32)
-                if (!string.IsNullOrEmpty(largeImagePath))
-                {
-                    BitmapImage largeImage = GetBitmapImageFromFolder(largeImagePath) ?? GetBitmapImage(largeImagePath);
-                    if (largeImage != null)
-                        button.LargeImage = largeImage;
-                }
-                
-                // Set small image (16x16)
-                if (!string.IsNullOrEmpty(smallImagePath))
-                {
-                    BitmapImage smallImage = GetBitmapImageFromFolder(smallImagePath) ?? GetBitmapImage(smallImagePath);
-                    if (smallImage != null)
-                        button.Image = smallImage;
-                }
-            }
-
-            return new
-            {
-                success = true,
-                message = $"Push button '{buttonText}' created successfully",
-                buttonName = buttonName,
-                panelName = panelName
-            };
-        }
-
-        private object CreateSplitButton(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-            string buttonName = parameters.ContainsKey("button_name") ? parameters["button_name"]?.ToString() : null;
-            string buttonText = parameters.ContainsKey("button_text") ? parameters["button_text"]?.ToString() : null;
-            string tooltip = parameters.ContainsKey("tooltip") ? parameters["tooltip"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName) || string.IsNullOrEmpty(buttonName) || string.IsNullOrEmpty(buttonText))
-            {
-                return new { success = false, error = "panel_name, button_name, and button_text are required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            SplitButtonData splitData = new SplitButtonData(buttonName, buttonText);
-            SplitButton splitButton = panel.AddItem(splitData) as SplitButton;
-
-            if (splitButton != null && !string.IsNullOrEmpty(tooltip))
-            {
-                splitButton.ToolTip = tooltip;
-            }
-
-            // Add sub-buttons
-            int subButtonCount = 0;
-            if (parameters.ContainsKey("sub_buttons") && parameters["sub_buttons"] != null)
-            {
-                var subButtons = parameters["sub_buttons"];
-                if (subButtons is JArray jArray)
-                {
-                    string assemblyPath = typeof(Application).Assembly.Location;
-                    foreach (var subBtn in jArray)
-                    {
-                        string subName = subBtn["name"]?.ToString();
-                        string subText = subBtn["text"]?.ToString();
-                        string subClass = subBtn["class_name"]?.ToString() ?? typeof(MCPStatusCommand).FullName;
-                        string subTooltip = subBtn["tooltip"]?.ToString();
-
-                        if (!string.IsNullOrEmpty(subName) && !string.IsNullOrEmpty(subText))
-                        {
-                            PushButtonData pbData = new PushButtonData(subName, subText, assemblyPath, subClass);
-                            PushButton pb = splitButton.AddPushButton(pbData);
-                            if (pb != null && !string.IsNullOrEmpty(subTooltip))
-                            {
-                                pb.ToolTip = subTooltip;
-                            }
-                            subButtonCount++;
-                        }
-                    }
-                }
-            }
-
-            return new
-            {
-                success = true,
-                message = $"Split button '{buttonText}' created with {subButtonCount} sub-buttons",
-                buttonName = buttonName,
-                subButtonCount = subButtonCount
-            };
-        }
-
-        private object CreatePulldownButton(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-            string buttonName = parameters.ContainsKey("button_name") ? parameters["button_name"]?.ToString() : null;
-            string buttonText = parameters.ContainsKey("button_text") ? parameters["button_text"]?.ToString() : null;
-            string tooltip = parameters.ContainsKey("tooltip") ? parameters["tooltip"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName) || string.IsNullOrEmpty(buttonName) || string.IsNullOrEmpty(buttonText))
-            {
-                return new { success = false, error = "panel_name, button_name, and button_text are required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            PulldownButtonData pulldownData = new PulldownButtonData(buttonName, buttonText);
-            PulldownButton pulldownButton = panel.AddItem(pulldownData) as PulldownButton;
-
-            if (pulldownButton != null && !string.IsNullOrEmpty(tooltip))
-            {
-                pulldownButton.ToolTip = tooltip;
-            }
-
-            // Add sub-buttons
-            int subButtonCount = 0;
-            if (parameters.ContainsKey("sub_buttons") && parameters["sub_buttons"] != null)
-            {
-                var subButtons = parameters["sub_buttons"];
-                if (subButtons is JArray jArray)
-                {
-                    string assemblyPath = typeof(Application).Assembly.Location;
-                    foreach (var subBtn in jArray)
-                    {
-                        string subName = subBtn["name"]?.ToString();
-                        string subText = subBtn["text"]?.ToString();
-                        string subClass = subBtn["class_name"]?.ToString() ?? typeof(MCPStatusCommand).FullName;
-                        string subTooltip = subBtn["tooltip"]?.ToString();
-
-                        if (!string.IsNullOrEmpty(subName) && !string.IsNullOrEmpty(subText))
-                        {
-                            PushButtonData pbData = new PushButtonData(subName, subText, assemblyPath, subClass);
-                            PushButton pb = pulldownButton.AddPushButton(pbData);
-                            if (pb != null && !string.IsNullOrEmpty(subTooltip))
-                            {
-                                pb.ToolTip = subTooltip;
-                            }
-                            subButtonCount++;
-                        }
-                    }
-                }
-            }
-
-            return new
-            {
-                success = true,
-                message = $"Pulldown button '{buttonText}' created with {subButtonCount} items",
-                buttonName = buttonName,
-                subButtonCount = subButtonCount
-            };
-        }
-
-        private object CreateComboBox(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-            string buttonName = parameters.ContainsKey("button_name") ? parameters["button_name"]?.ToString() : null;
-            string tooltip = parameters.ContainsKey("tooltip") ? parameters["tooltip"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName) || string.IsNullOrEmpty(buttonName))
-            {
-                return new { success = false, error = "panel_name and button_name are required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            ComboBoxData comboData = new ComboBoxData(buttonName);
-            ComboBox comboBox = panel.AddItem(comboData) as ComboBox;
-
-            if (comboBox != null)
-            {
-                if (!string.IsNullOrEmpty(tooltip))
-                    comboBox.ToolTip = tooltip;
-
-                // Add combo items
-                int itemCount = 0;
-                if (parameters.ContainsKey("combo_items") && parameters["combo_items"] != null)
-                {
-                    var items = parameters["combo_items"];
-                    if (items is JArray jArray)
-                    {
-                        foreach (var item in jArray)
-                        {
-                            string itemName = item["name"]?.ToString();
-                            string itemText = item["text"]?.ToString();
-                            string groupName = item["group_name"]?.ToString();
-
-                            if (!string.IsNullOrEmpty(itemName) && !string.IsNullOrEmpty(itemText))
-                            {
-                                if (!string.IsNullOrEmpty(groupName))
-                                {
-                                    comboBox.AddItem(new ComboBoxMemberData(itemName, itemText) { GroupName = groupName });
-                                }
-                                else
-                                {
-                                    comboBox.AddItem(new ComboBoxMemberData(itemName, itemText));
-                                }
-                                itemCount++;
-                            }
-                        }
-                    }
-                }
-
-                return new
-                {
-                    success = true,
-                    message = $"Combo box '{buttonName}' created with {itemCount} items",
-                    comboBoxName = buttonName,
-                    itemCount = itemCount
-                };
-            }
-
-            return new { success = false, error = "Failed to create combo box" };
-        }
-
-        private object CreateTextBox(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-            string buttonName = parameters.ContainsKey("button_name") ? parameters["button_name"]?.ToString() : null;
-            string tooltip = parameters.ContainsKey("tooltip") ? parameters["tooltip"]?.ToString() : null;
-            string prompt = parameters.ContainsKey("text_box_prompt") ? parameters["text_box_prompt"]?.ToString() : null;
-            double width = parameters.ContainsKey("text_box_width") ? Convert.ToDouble(parameters["text_box_width"]) : 150;
-
-            if (string.IsNullOrEmpty(panelName) || string.IsNullOrEmpty(buttonName))
-            {
-                return new { success = false, error = "panel_name and button_name are required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            TextBoxData textBoxData = new TextBoxData(buttonName);
-            TextBox textBox = panel.AddItem(textBoxData) as TextBox;
-
-            if (textBox != null)
-            {
-                textBox.Width = width;
-                if (!string.IsNullOrEmpty(tooltip))
-                    textBox.ToolTip = tooltip;
-                if (!string.IsNullOrEmpty(prompt))
-                    textBox.PromptText = prompt;
-
-                return new
-                {
-                    success = true,
-                    message = $"Text box '{buttonName}' created successfully",
-                    textBoxName = buttonName
-                };
-            }
-
-            return new { success = false, error = "Failed to create text box" };
-        }
-
-        private object CreateStackedItems(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName))
-            {
-                return new { success = false, error = "panel_name is required" };
-            }
-
-            if (!parameters.ContainsKey("stacked_items") || parameters["stacked_items"] == null)
-            {
-                return new { success = false, error = "stacked_items array is required (2-3 items)" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            var stackedItems = parameters["stacked_items"];
-            if (!(stackedItems is JArray jArray) || jArray.Count < 2 || jArray.Count > 3)
-            {
-                return new { success = false, error = "stacked_items must contain 2-3 items" };
-            }
-
-            string assemblyPath = typeof(Application).Assembly.Location;
-            var itemDataList = new List<RibbonItemData>();
-
-            foreach (var item in jArray)
-            {
-                string itemType = item["type"]?.ToString()?.ToLower();
-                string itemName = item["name"]?.ToString();
-                string itemText = item["text"]?.ToString();
-                string itemClass = item["class_name"]?.ToString() ?? typeof(MCPStatusCommand).FullName;
-
-                if (string.IsNullOrEmpty(itemName) || string.IsNullOrEmpty(itemText))
-                    continue;
-
-                switch (itemType)
-                {
-                    case "push_button":
-                        itemDataList.Add(new PushButtonData(itemName, itemText, assemblyPath, itemClass));
-                        break;
-                    case "pulldown_button":
-                        itemDataList.Add(new PulldownButtonData(itemName, itemText));
-                        break;
-                    case "combo_box":
-                        itemDataList.Add(new ComboBoxData(itemName));
-                        break;
-                    case "text_box":
-                        itemDataList.Add(new TextBoxData(itemName));
-                        break;
-                }
-            }
-
-            if (itemDataList.Count < 2)
-            {
-                return new { success = false, error = "At least 2 valid stacked items are required" };
-            }
-
-            IList<RibbonItem> createdItems;
-            if (itemDataList.Count == 2)
-            {
-                createdItems = panel.AddStackedItems(itemDataList[0], itemDataList[1]);
-            }
-            else
-            {
-                createdItems = panel.AddStackedItems(itemDataList[0], itemDataList[1], itemDataList[2]);
-            }
-
-            return new
-            {
-                success = true,
-                message = $"Created {createdItems.Count} stacked items",
-                itemCount = createdItems.Count
-            };
-        }
-
-        private object ListRibbonTabs(UIControlledApplication app)
-        {
-            // Note: Revit API doesn't provide a direct way to list all tabs
-            // We can only list panels, which gives us tab information indirectly
-            var tabsInfo = new List<string> { "Add-Ins" }; // Default tab always exists
-            
-            return new
-            {
-                success = true,
-                message = "Note: Only custom tabs created by this add-in can be reliably tracked",
-                knownTabs = tabsInfo
-            };
-        }
-
-        private object ListRibbonPanels(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-
-            try
-            {
-                IList<RibbonPanel> panels;
-                if (!string.IsNullOrEmpty(tabName))
-                {
-                    panels = app.GetRibbonPanels(tabName);
-                }
-                else
-                {
-                    panels = app.GetRibbonPanels();
-                }
-
-                var panelNames = panels?.Select(p => new { name = p.Name, visible = p.Visible }).ToList();
-
-                return new
-                {
-                    success = true,
-                    tabName = tabName ?? "Add-Ins",
-                    panelCount = panelNames?.Count ?? 0,
-                    panels = panelNames
-                };
-            }
-            catch (Exception ex)
-            {
-                return new { success = false, error = ex.Message };
-            }
-        }
-
-        private object GetPanelItems(UIControlledApplication app, Dictionary<string, object> parameters)
-        {
-            string tabName = parameters.ContainsKey("tab_name") ? parameters["tab_name"]?.ToString() : null;
-            string panelName = parameters.ContainsKey("panel_name") ? parameters["panel_name"]?.ToString() : null;
-
-            if (string.IsNullOrEmpty(panelName))
-            {
-                return new { success = false, error = "panel_name is required" };
-            }
-
-            RibbonPanel panel = GetRibbonPanel(app, tabName, panelName);
-            if (panel == null)
-            {
-                return new { success = false, error = $"Panel '{panelName}' not found" };
-            }
-
-            var items = panel.GetItems();
-            var itemInfoList = items.Select(item => new
-            {
-                name = item.Name,
-                itemType = item.ItemType.ToString(),
-                visible = item.Visible,
-                enabled = item.Enabled,
-                toolTip = item.ToolTip
-            }).ToList();
-
-            return new
-            {
-                success = true,
-                panelName = panelName,
-                itemCount = itemInfoList.Count,
-                items = itemInfoList
-            };
-        }
-
-        private object GetImageFolderInfo(Dictionary<string, object> parameters)
-        {
-            string folderName = parameters.ContainsKey("image_folder") ? parameters["image_folder"]?.ToString() : "Images";
-            string imageFolderPath = GetImageFolder(folderName);
-            
-            string assemblyPath = Assembly.GetExecutingAssembly().Location;
-            string assemblyDir = Path.GetDirectoryName(assemblyPath);
-
-            return new
-            {
-                success = true,
-                assemblyLocation = assemblyPath,
-                assemblyDirectory = assemblyDir,
-                imageFolderName = folderName,
-                imageFolderPath = imageFolderPath,
-                imageFolderExists = imageFolderPath != null
-            };
-        }
-
-        private object ListImagesInFolder(Dictionary<string, object> parameters)
-        {
-            string folderName = parameters.ContainsKey("image_folder") ? parameters["image_folder"]?.ToString() : "Images";
-            string[] images = ListImageFiles(folderName);
-            string imageFolderPath = GetImageFolder(folderName);
-
-            return new
-            {
-                success = true,
-                folderName = folderName,
-                folderPath = imageFolderPath,
-                imageCount = images.Length,
-                images = images
-            };
-        }
-
         #region Image Utility Functions
 
         /// <summary>
@@ -9463,6 +10083,15 @@ namespace RevitMCPAddin
 
                     case "get_forms":
                         return GetForms(doc);
+
+                    case "make_adaptive_points":
+                        return MakeAdaptivePoints(doc, parameters);
+
+                    case "get_adaptive_point_ids":
+                        return GetAdaptivePointIds(doc);
+
+                    case "set_adaptive_point_ids":
+                        return SetAdaptivePointIds(doc, parameters);
 
                     case "create_revolve_axis":
                         return CreateRevolveAxis(doc, parameters);
@@ -9954,13 +10583,27 @@ namespace RevitMCPAddin
                 if (refPoint != null)
                 {
                     XYZ position = refPoint.Position;
+                    
+                    // Try to get isAdaptive property using reflection (may not exist in all Revit versions)
+                    bool isAdaptive = false;
+                    try
+                    {
+                        var propInfo = typeof(ReferencePoint).GetProperty("IsAdaptivePoint");
+                        if (propInfo != null)
+                        {
+                            isAdaptive = (bool)propInfo.GetValue(refPoint);
+                        }
+                    }
+                    catch { }
+                    
                     pointsList.Add(new
                     {
                         id = GetElementIdInt(refPoint.Id),
                         name = refPoint.Name,
                         x = position.X,
                         y = position.Y,
-                        z = position.Z
+                        z = position.Z,
+                        isAdaptive = isAdaptive
                     });
                 }
             }
@@ -9972,6 +10615,287 @@ namespace RevitMCPAddin
                 referencePoints = pointsList
             };
         }
+
+        private object MakeAdaptivePoints(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("point_ids") || parameters["point_ids"] == null)
+            {
+                return new { success = false, error = "point_ids array is required" };
+            }
+
+            var pointIds = new List<ElementId>();
+            var idsObj = parameters["point_ids"];
+
+            if (idsObj is JArray jArray)
+            {
+                foreach (var item in jArray)
+                {
+                    if (item != null)
+                    {
+                        pointIds.Add(new ElementId(Convert.ToInt32(item)));
+                    }
+                }
+            }
+            else if (idsObj is IEnumerable<object> enumerable)
+            {
+                foreach (var item in enumerable)
+                {
+                    if (item != null)
+                    {
+                        pointIds.Add(new ElementId(Convert.ToInt32(item)));
+                    }
+                }
+            }
+            else
+            {
+                return new { success = false, error = "point_ids must be an array" };
+            }
+
+            if (pointIds.Count == 0)
+            {
+                return new { success = false, error = "point_ids array cannot be empty" };
+            }
+
+            var convertedPoints = new List<object>();
+            var failedPoints = new List<object>();
+
+            using (Transaction trans = new Transaction(doc, "Make Adaptive Points"))
+            {
+                trans.Start();
+
+                foreach (ElementId id in pointIds)
+                {
+                    Element elem = doc.GetElement(id);
+                    if (elem == null)
+                    {
+                        failedPoints.Add(new { id = GetElementIdInt(id), error = "Element not found" });
+                        continue;
+                    }
+
+                    ReferencePoint refPoint = elem as ReferencePoint;
+                    if (refPoint == null)
+                    {
+                        failedPoints.Add(new { id = GetElementIdInt(id), error = "Element is not a ReferencePoint" });
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Set the reference point to be adaptive using reflection
+                        // In Revit families, this makes the point show up as a placement point
+                        var propInfo = typeof(ReferencePoint).GetProperty("IsAdaptivePoint");
+                        bool wasSet = false;
+                        
+                        if (propInfo != null && propInfo.CanWrite)
+                        {
+                            propInfo.SetValue(refPoint, true);
+                            wasSet = true;
+                        }
+                        
+                        if (!wasSet)
+                        {
+                            // Alternative: Try using CoordinatePlaneReferenceFrame if IsAdaptivePoint doesn't exist
+                            // This is another way reference points can be made "adaptive" in older/newer APIs
+                            failedPoints.Add(new { 
+                                id = GetElementIdInt(id), 
+                                error = "IsAdaptivePoint property not available in this Revit version. Reference point created but may not be adaptive." 
+                            });
+                            continue;
+                        }
+
+                        XYZ position = refPoint.Position;
+                        convertedPoints.Add(new
+                        {
+                            id = GetElementIdInt(refPoint.Id),
+                            name = refPoint.Name,
+                            x = position.X,
+                            y = position.Y,
+                            z = position.Z,
+                            isAdaptive = true
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        failedPoints.Add(new { id = GetElementIdInt(id), error = ex.Message });
+                    }
+                }
+
+                trans.Commit();
+            }
+
+            return new
+            {
+                success = true,
+                message = $"Converted {convertedPoints.Count} reference points to adaptive points",
+                convertedCount = convertedPoints.Count,
+                failedCount = failedPoints.Count,
+                convertedPoints = convertedPoints,
+                failedPoints = failedPoints
+            };
+        }
+
+        /// <summary>
+        /// Get the ElementIds of reference points that are set as adaptive placement points 
+        /// Checks ReferencePoint.IsAdaptivePoint property using reflection
+        /// </summary>
+        private object GetAdaptivePointIds(Document doc)
+        {
+            try
+            {
+                FilteredElementCollector collector = new FilteredElementCollector(doc);
+                ICollection<Element> refPoints = collector.OfClass(typeof(ReferencePoint)).ToElements();
+                
+                var pointsList = new List<object>();
+                
+                foreach (Element elem in refPoints)
+                {
+                    if (elem is ReferencePoint refPoint)
+                    {
+                        bool isAdaptive = false;
+                        try
+                        {
+                            var propInfo = typeof(ReferencePoint).GetProperty("IsAdaptivePoint");
+                            if (propInfo != null)
+                            {
+                                isAdaptive = (bool)propInfo.GetValue(refPoint);
+                            }
+                        }
+                        catch { }
+                        
+                        if (isAdaptive)
+                        {
+                            XYZ position = refPoint.Position;
+                            pointsList.Add(new
+                            {
+                                id = GetElementIdInt(refPoint.Id),
+                                name = refPoint.Name,
+                                x = position.X,
+                                y = position.Y,
+                                z = position.Z
+                            });
+                        }
+                    }
+                }
+                
+                return new
+                {
+                    success = true,
+                    count = pointsList.Count,
+                    message = $"Found {pointsList.Count} adaptive placement point(s)",
+                    adaptivePoints = pointsList
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to get adaptive point IDs: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
+        /// Set which reference points should be used as adaptive placement points
+        /// Uses AdaptiveComponentFamilyUtils.SetInstancePlacementPointElementRefIds
+        /// </summary>
+        private object SetAdaptivePointIds(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("point_ids") || parameters["point_ids"] == null)
+            {
+                return new { success = false, error = "point_ids array is required (array of ElementIds)" };
+            }
+
+            var pointIds = new List<ElementId>();
+            var idsObj = parameters["point_ids"];
+
+            try
+            {
+                if (idsObj is JArray jArray)
+                {
+                    foreach (var item in jArray)
+                    {
+                        if (item != null)
+                        {
+                            pointIds.Add(new ElementId(Convert.ToInt32(item)));
+                        }
+                    }
+                }
+                else if (idsObj is IEnumerable<object> enumerable)
+                {
+                    foreach (var item in enumerable)
+                    {
+                        if (item != null)
+                        {
+                            pointIds.Add(new ElementId(Convert.ToInt32(item)));
+                        }
+                    }
+                }
+                else
+                {
+                    return new { success = false, error = "point_ids must be an array" };
+                }
+
+                // Validate that all IDs are reference points
+                foreach (ElementId id in pointIds)
+                {
+                    Element elem = doc.GetElement(id);
+                    if (elem == null || !(elem is ReferencePoint))
+                    {
+                        return new { success = false, error = $"Element {GetElementIdInt(id)} is not a valid ReferencePoint" };
+                    }
+                }
+
+                using (Transaction trans = new Transaction(doc, "Set Adaptive Point IDs"))
+                {
+                    trans.Start();
+                    
+                    // First, clear all existing adaptive points
+                    FilteredElementCollector allRefPoints = new FilteredElementCollector(doc);
+                    ICollection<Element> allPoints = allRefPoints.OfClass(typeof(ReferencePoint)).ToElements();
+                    
+                    var propInfo = typeof(ReferencePoint).GetProperty("IsAdaptivePoint");
+                    if (propInfo != null && propInfo.CanWrite)
+                    {
+                        // Clear all adaptive flags first
+                        foreach (Element elem in allPoints)
+                        {
+                            if (elem is ReferencePoint rp)
+                            {
+                                try { propInfo.SetValue(rp, false); } catch { }
+                            }
+                        }
+                        
+                        // Set specified points as adaptive
+                        foreach (ElementId id in pointIds)
+                        {
+                            Element elem = doc.GetElement(id);
+                            if (elem is ReferencePoint refPoint)
+                            {
+                                propInfo.SetValue(refPoint, true);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = "IsAdaptivePoint property not available in this Revit version" };
+                    }
+                    
+                    trans.Commit();
+                }
+
+                return new
+                {
+                    success = true,
+                    message = $"Successfully set {pointIds.Count} reference point(s) as adaptive placement points",
+                    assignedCount = pointIds.Count,
+                    assignedIds = pointIds.Select(id => GetElementIdInt(id)).ToList()
+                };
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"Failed to set adaptive point IDs: {ex.Message}" };
+            }
+        }
+
+
 
         private object DeleteReferencePoints(Document doc, Dictionary<string, object> parameters)
         {
@@ -12550,7 +13474,7 @@ namespace RevitMCPAddin
             string operation = parameters.ContainsKey("operation") ? parameters["operation"]?.ToString()?.ToLower() : null;
             if (string.IsNullOrEmpty(operation))
             {
-                return new { success = false, error = "operation is required. Use 'create_divided_surface', 'set_uv_divisions', 'get_divided_surfaces', or 'get_forms'." };
+                return new { success = false, error = "operation is required. Use 'create_divided_surface', 'set_uv_divisions', 'set_grid_properties', 'get_divided_surfaces', or 'get_forms'." };
             }
 
             try
@@ -12563,6 +13487,9 @@ namespace RevitMCPAddin
                     case "set_uv_divisions":
                         return SetUVDivisions(doc, parameters);
 
+                    case "set_grid_properties":
+                        return SetGridProperties(doc, parameters);
+
                     case "get_divided_surfaces":
                         return GetDividedSurfaces(doc);
 
@@ -12570,7 +13497,7 @@ namespace RevitMCPAddin
                         return GetFormsForDividedSurface(doc);
 
                     default:
-                        return new { success = false, error = $"Unknown divided surface operation: {operation}. Use 'create_divided_surface', 'set_uv_divisions', 'get_divided_surfaces', or 'get_forms'." };
+                        return new { success = false, error = $"Unknown divided surface operation: {operation}. Use 'create_divided_surface', 'set_uv_divisions', 'set_grid_properties', 'get_divided_surfaces', or 'get_forms'." };
                 }
             }
             catch (Exception ex)
@@ -12731,6 +13658,112 @@ namespace RevitMCPAddin
                     uDivisions = actualU,
                     vDivisions = actualV,
                     note = "Actual parameter values may vary based on available parameters."
+                };
+            }
+        }
+
+        /// <summary>
+        /// Sets grid display properties including node visibility, U/V grid line counts, and justification.
+        /// </summary>
+        private object SetGridProperties(Document doc, Dictionary<string, object> parameters)
+        {
+            if (!parameters.ContainsKey("divided_surface_id") || parameters["divided_surface_id"] == null)
+            {
+                return new { success = false, error = "divided_surface_id is required." };
+            }
+
+            int dividedSurfaceId = Convert.ToInt32(parameters["divided_surface_id"]);
+            Element elem = doc.GetElement(new ElementId(dividedSurfaceId));
+            
+            if (elem == null)
+            {
+                return new { success = false, error = $"Element with ID {dividedSurfaceId} not found." };
+            }
+
+            if (!(elem is DividedSurface dividedSurface))
+            {
+                return new { success = false, error = $"Element {dividedSurfaceId} is not a DividedSurface. Type: {elem.GetType().Name}" };
+            }
+
+            var appliedSettings = new Dictionary<string, object>();
+
+            using (Transaction trans = new Transaction(doc, "Set Grid Properties"))
+            {
+                trans.Start();
+
+                // Show Intersecting Nodes
+                if (parameters.ContainsKey("show_nodes"))
+                {
+                    bool showNodes = Convert.ToBoolean(parameters["show_nodes"]);
+                    Parameter showNodesParam = dividedSurface.LookupParameter("Show Intersecting Nodes");
+                    if (showNodesParam != null && !showNodesParam.IsReadOnly)
+                    {
+                        showNodesParam.Set(showNodes ? 1 : 0);
+                        appliedSettings["show_nodes"] = showNodes;
+                    }
+                }
+
+                // Number of U Grid Lines
+                if (parameters.ContainsKey("u_grid_lines"))
+                {
+                    int uGridLines = Convert.ToInt32(parameters["u_grid_lines"]);
+                    Parameter uParam = dividedSurface.LookupParameter("Number of U Grid Lines");
+                    if (uParam != null && !uParam.IsReadOnly)
+                    {
+                        uParam.Set(uGridLines);
+                        appliedSettings["u_grid_lines"] = uGridLines;
+                    }
+                }
+
+                // Number of V Grid Lines
+                if (parameters.ContainsKey("v_grid_lines"))
+                {
+                    int vGridLines = Convert.ToInt32(parameters["v_grid_lines"]);
+                    Parameter vParam = dividedSurface.LookupParameter("Number of V Grid Lines");
+                    if (vParam != null && !vParam.IsReadOnly)
+                    {
+                        vParam.Set(vGridLines);
+                        appliedSettings["v_grid_lines"] = vGridLines;
+                    }
+                }
+
+                // Justification
+                if (parameters.ContainsKey("justification"))
+                {
+                    string justification = parameters["justification"].ToString();
+                    Parameter justParam = dividedSurface.LookupParameter("Justification");
+                    if (justParam != null && !justParam.IsReadOnly)
+                    {
+                        // Justification is typically an integer enum: 0=Beginning, 1=Middle, 2=End
+                        int justValue = 1; // Default to Middle
+                        switch (justification.ToLower())
+                        {
+                            case "beginning":
+                            case "start":
+                                justValue = 0;
+                                break;
+                            case "middle":
+                            case "center":
+                                justValue = 1;
+                                break;
+                            case "end":
+                            case "ending":
+                                justValue = 2;
+                                break;
+                        }
+                        justParam.Set(justValue);
+                        appliedSettings["justification"] = justification;
+                    }
+                }
+
+                trans.Commit();
+
+                return new
+                {
+                    success = true,
+                    message = "Grid properties updated successfully",
+                    divided_surface_id = dividedSurfaceId,
+                    applied_settings = appliedSettings
                 };
             }
         }
@@ -14977,6 +16010,119 @@ namespace RevitMCPAddin
         /// <summary>
         /// Load a family from file path
         /// </summary>
+        /// <summary>
+        /// Standalone tool to load families into a project with optional path storage
+        /// </summary>
+        private object LoadFamilyTool(Document doc, Dictionary<string, object> parameters)
+        {
+            try
+            {
+                if (!parameters.ContainsKey("file_path"))
+                {
+                    return new { success = false, error = "file_path is required" };
+                }
+
+                string filePath = parameters["file_path"].ToString();
+                bool savePathToFile = parameters.ContainsKey("save_path_to_file") && Convert.ToBoolean(parameters["save_path_to_file"]);
+                string pathStorageFile = parameters.ContainsKey("path_storage_file") ? parameters["path_storage_file"]?.ToString() : null;
+
+                if (!File.Exists(filePath))
+                {
+                    return new { success = false, error = $"File not found: {filePath}" };
+                }
+
+                if (!filePath.EndsWith(".rfa", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new { success = false, error = "File must be a Revit family file (.rfa)" };
+                }
+
+                // Default storage file is in the same directory as the Revit document
+                if (string.IsNullOrEmpty(pathStorageFile) && savePathToFile)
+                {
+                    string docPath = doc.PathName;
+                    if (string.IsNullOrEmpty(docPath))
+                    {
+                        // If document hasn't been saved, use temp folder
+                        pathStorageFile = Path.Combine(Path.GetTempPath(), "RevitMCP_LoadedFamilies.txt");
+                    }
+                    else
+                    {
+                        string docDir = Path.GetDirectoryName(docPath);
+                        pathStorageFile = Path.Combine(docDir, "LoadedFamilies.txt");
+                    }
+                }
+
+                using (Transaction trans = new Transaction(doc, "Load Family"))
+                {
+                    trans.Start();
+
+                    Family loadedFamily = null;
+                    bool loaded = doc.LoadFamily(filePath, out loadedFamily);
+
+                    if (!loaded || loadedFamily == null)
+                    {
+                        trans.RollBack();
+                        return new { success = false, error = "Failed to load family. It may already be loaded or be incompatible." };
+                    }
+
+                    trans.Commit();
+
+                    // Save path to file if requested
+                    string pathStorageResult = null;
+                    if (savePathToFile && !string.IsNullOrEmpty(pathStorageFile))
+                    {
+                        try
+                        {
+                            // Append the path with timestamp
+                            string entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} | {loadedFamily.Name} | {filePath}";
+                            File.AppendAllLines(pathStorageFile, new[] { entry });
+                            pathStorageResult = pathStorageFile;
+                        }
+                        catch (Exception ex)
+                        {
+                            pathStorageResult = $"Failed to save path: {ex.Message}";
+                        }
+                    }
+
+                    // Get all symbols from the loaded family
+                    var symbols = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilySymbol))
+                        .Cast<FamilySymbol>()
+                        .Where(s => s.Family.Id == loadedFamily.Id)
+                        .Select(s => new
+                        {
+                            type_id = GetElementIdInt(s.Id),
+                            type_name = s.Name,
+                            is_active = s.IsActive
+                        })
+                        .ToList();
+
+                    var result = new Dictionary<string, object>
+                    {
+                        { "success", true },
+                        { "message", "Family loaded successfully" },
+                        { "family_id", GetElementIdInt(loadedFamily.Id) },
+                        { "family_name", loadedFamily.Name },
+                        { "category", loadedFamily.FamilyCategory?.Name },
+                        { "file_path", filePath },
+                        { "type_count", symbols.Count },
+                        { "types", symbols }
+                    };
+
+                    if (savePathToFile)
+                    {
+                        result["path_saved_to"] = pathStorageResult;
+                    }
+
+                    return result;
+                }
+            }
+            catch (Exception ex)
+            {
+                return new { success = false, error = $"LoadFamilyTool error: {ex.Message}" };
+            }
+        }
+
         private object LoadFamilyFromFile(Document doc, Dictionary<string, object> parameters)
         {
             try

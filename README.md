@@ -1,5 +1,5 @@
+# Revit 2026 MCP Server
 
-# Proof of concept. Local Revit 2026 MCP Server with external agents
 A Model Context Protocol (MCP) server implementation for Autodesk Revit 2026, enabling AI assistants like Claude to interact with Revit projects through a standardized interface.
 
 ## Overview
@@ -20,6 +20,7 @@ This MCP server provides a bridge between AI assistants and Autodesk Revit 2026,
 - **Advanced Filtering**: Query elements using complex filter criteria
 - **Schedule Management**: Create schedules, get table data, modify filters and grouping
 - **Element Transformation**: Move, copy, mirror, rotate, create arrays
+- **Shape Creation**: Create geometric shapes (rectangles, circles, polygons) as detail lines, model lines, or symbolic curves
 - **Family Operations**: Add/remove shared parameters in families and projects
 - **Selection Tools**: Get/set selection, pick objects, points, faces, edges interactively
 - **Task Dialogs**: Display customizable popup dialogs with buttons and command links
@@ -36,6 +37,8 @@ This MCP server provides a bridge between AI assistants and Autodesk Revit 2026,
 - **Family Instances**: Place family instances at points, on hosts, faces, and references
 - **Family Modeling**: Create extrusions, blends, revolutions, sweeps, swept blends, loft forms, model text, openings, and symbolic curves in family documents
 - **MEP Connectors**: Create duct, pipe, electrical, cable tray, and conduit connectors on family geometry faces
+- **Family Manager**: Manage family types, parameters, formulas, associate/dissociate element parameters, query all FamilyParameter properties
+- **Application Documents**: Create new family documents and project documents from templates with automatic template path resolution
 
 ## Prerequisites
 
@@ -87,9 +90,9 @@ Edit `%APPDATA%\Claude\claude_desktop_config.json`:
 {
   "mcpServers": {
     "revit": {
-      "command": "C:\\Users\\username\\Downloads\\Revit2026-MCP\\venv\\Scripts\\python.exe",
+      "command": "python",
       "args": [
-        "C:\\Users\\username\\Downloads\\Revit2026-MCP\\revit_mcp_server.py"
+        "C:\\path\\to\\revit-mcp-server\\revit_mcp_server.py"
       ]
     }
   }
@@ -179,6 +182,9 @@ All families loaded in the current project.
 | `create_point` | Create a point element |
 | `create_point_on_element` | Create a point on an element's geometry |
 | `create_point_markup` | Create markup symbols (cross, circle, square) |
+| `create_detail_shapes` | Create geometric shapes (rectangle, circle, polygon) as detail lines in views |
+| `create_model_shapes` | Create geometric shapes (rectangle, circle, polygon) as model lines in 3D |
+| `create_symbolic_shapes` | Create geometric shapes (rectangle, circle, polygon) as symbolic lines in families |
 | `create_reference_plane` | Create a reference plane |
 | `get_reference_planes` | Get reference planes from model or element |
 
@@ -391,6 +397,32 @@ Operations:
 - `create_conduit_connector` - Create conduit connector on a planar face
 - `change_host_reference` - Change connector to a different face/edge
 - `get_connectors` - List all connectors in family
+
+| Tool | Description |
+|------|-------------|
+| `family_manager_tool` | Manage family types, parameters, formulas, and element parameter associations |
+
+Operations:
+- `create_type` - Create a new family type
+- `rename_type` - Rename an existing family type
+- `set_current_type` - Set the current family type
+- `get_family_types` - List all family types
+- `set_parameter_value` - Set parameter value for a family type
+- `add_formula` - Add a formula to a family parameter
+- `get_formula` - Get the formula of a family parameter
+- `get_family_category` - Get the family's category
+- `associate_element_parameter` - Associate an element parameter to a family parameter
+- `dissociate_element_parameter` - Dissociate an element parameter from a family parameter
+- `get_family_parameter_info` - Get all properties of a family parameter (storage type, is_instance, is_shared, is_read_only, formula, guid, builtin_parameter, current values)
+- `get_all_family_parameters` - List all family parameters with complete property details
+
+| Tool | Description |
+|------|-------------|
+| `application_document_tool` | Create new Revit documents from templates using the Application class |
+
+Operations:
+- `new_family_document` - Create new family document from template (.rft) with automatic template path search in C:\ProgramData\Autodesk\RVT 2026\Family Templates
+- `new_project_document` - Create new project document from template (.rte) with automatic template path search in C:\ProgramData\Autodesk\RVT 2026\Templates
 
 ---
 
@@ -878,7 +910,3 @@ MIT License - see LICENSE file for details.
 - Issues: GitHub Issues
 - MCP Documentation: https://modelcontextprotocol.io
 - Revit API Docs: https://www.revitapidocs.com/2026
-
-
-# This is personal research and is not an official product from AUTODESK.
-

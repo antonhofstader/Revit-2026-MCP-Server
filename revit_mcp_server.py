@@ -2427,124 +2427,15 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
-            name="ribbon_tool",
-            description="Create and manage Revit Ribbon UI elements: tabs, panels, push buttons, split buttons, pulldown buttons, combo boxes, text boxes, and stacked items.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "operation": {
-                        "type": "string",
-                        "description": "Ribbon operation to perform",
-                        "enum": ["create_tab", "create_panel", "create_push_button", "create_split_button", "create_pulldown_button", "create_combo_box", "create_text_box", "create_stacked_items", "list_tabs", "list_panels", "get_panel_items", "get_image_folder", "list_images"]
-                    },
-                    "tab_name": {
-                        "type": "string",
-                        "description": "Name of the ribbon tab"
-                    },
-                    "panel_name": {
-                        "type": "string",
-                        "description": "Name of the ribbon panel"
-                    },
-                    "button_name": {
-                        "type": "string",
-                        "description": "Internal name for button (must be unique)"
-                    },
-                    "button_text": {
-                        "type": "string",
-                        "description": "Display text for button"
-                    },
-                    "tooltip": {
-                        "type": "string",
-                        "description": "Tooltip text for the control"
-                    },
-                    "long_description": {
-                        "type": "string",
-                        "description": "Extended tooltip description"
-                    },
-                    "class_name": {
-                        "type": "string",
-                        "description": "Full class name for external command (e.g., 'RevitMCPAddin.MyCommand')"
-                    },
-                    "sub_buttons": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "Internal button name"},
-                                "text": {"type": "string", "description": "Display text"},
-                                "class_name": {"type": "string", "description": "Full class name for command"},
-                                "tooltip": {"type": "string", "description": "Tooltip text"}
-                            },
-                            "required": ["name", "text", "class_name"]
-                        },
-                        "description": "Sub-buttons for split button or pulldown button"
-                    },
-                    "combo_items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string", "description": "Member name"},
-                                "text": {"type": "string", "description": "Display text"},
-                                "group_name": {"type": "string", "description": "Optional group name for separator"}
-                            },
-                            "required": ["name", "text"]
-                        },
-                        "description": "Items for combo box"
-                    },
-                    "combo_width": {
-                        "type": "number",
-                        "description": "Width of combo box in pixels (default: 120)"
-                    },
-                    "text_box_width": {
-                        "type": "number",
-                        "description": "Width of text box in pixels (default: 150)"
-                    },
-                    "text_box_prompt": {
-                        "type": "string",
-                        "description": "Prompt text shown in empty text box"
-                    },
-                    "stacked_items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "type": {"type": "string", "enum": ["push_button", "pulldown_button", "combo_box", "text_box"]},
-                                "name": {"type": "string", "description": "Internal name"},
-                                "text": {"type": "string", "description": "Display text"},
-                                "class_name": {"type": "string", "description": "Command class name (for buttons)"},
-                                "tooltip": {"type": "string", "description": "Tooltip"}
-                            },
-                            "required": ["type", "name", "text"]
-                        },
-                        "description": "2-3 items to stack vertically"
-                    },
-                    "large_image": {
-                        "type": "string",
-                        "description": "Path or filename for large button icon (32x32 pixels). Can be filename in Images folder or full path."
-                    },
-                    "small_image": {
-                        "type": "string",
-                        "description": "Path or filename for small button icon (16x16 pixels). Can be filename in Images folder or full path."
-                    },
-                    "image_folder": {
-                        "type": "string",
-                        "description": "Name of images folder (default: 'Images'). Used by get_image_folder and list_images operations."
-                    }
-                },
-                "required": ["operation"]
-            }
-        ),
-        Tool(
             name="family_points_tool",
-            description="Create reference points in a conceptual mass or adaptive family. Supports single point, row of points, or grid of points with configurable spacing.",
+            description="Create reference points in a conceptual mass or adaptive family. Supports single point, row of points, or grid of points with configurable spacing. Includes AdaptiveComponentFamilyUtils methods for managing adaptive placement points.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "operation": {
                         "type": "string",
                         "description": "Point creation operation",
-                        "enum": ["create_single_point", "create_point_row", "create_point_grid", "create_point_grid_formula", "get_reference_points", "delete_reference_points", "create_curve_by_points", "create_curves_from_grid", "get_curves_by_points", "create_loft_form", "get_forms"]
+                        "enum": ["create_single_point", "create_point_row", "create_point_grid", "create_point_grid_formula", "get_reference_points", "delete_reference_points", "make_adaptive_points", "get_adaptive_point_ids", "set_adaptive_point_ids", "create_curve_by_points", "create_curves_from_grid", "get_curves_by_points", "create_loft_form", "get_forms"]
                     },
                     "x": {
                         "type": "number",
@@ -2588,7 +2479,11 @@ async def list_tools() -> list[Tool]:
                     "point_ids": {
                         "type": "array",
                         "items": {"type": "integer"},
-                        "description": "Element IDs of reference points to delete"
+                        "description": "Element IDs of reference points - used for delete_reference_points, make_adaptive_points, or set_adaptive_point_ids operations"
+                    },
+                    "point_id": {
+                        "type": "integer",
+                        "description": "Single ElementId of a reference point - used for check_is_point_used operation"
                     },
                     "z_formula": {
                         "type": "string",
@@ -2617,6 +2512,80 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["operation"]
+            }
+        ),
+        Tool(
+            name="family_manager_tool",
+            description="Comprehensive family management tool for Revit family documents (.rfa). Manage family types, parameters, formulas, FamilyParameter properties, and element parameter associations. Operations: create/delete/rename family types, set parameter values, manage formulas, associate/dissociate element parameters, get detailed parameter information. Requires family document to be open.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Family management operation",
+                        "enum": ["create_type", "delete_type", "rename_type", "set_current_type", "get_family_types", "set_parameter_value", "add_formula", "get_formula", "associate_element_parameter", "dissociate_element_parameter", "get_family_parameter_info", "get_all_family_parameters", "get_family_category"]
+                    },
+                    "type_name": {
+                        "type": "string",
+                        "description": "Name of the family type (for create_type, delete_type, set_current_type)"
+                    },
+                    "old_name": {
+                        "type": "string",
+                        "description": "Current name of the type to rename (for rename_type, optional if renaming current type)"
+                    },
+                    "new_name": {
+                        "type": "string",
+                        "description": "New name for the family type (for rename_type)"
+                    },
+                    "parameter_name": {
+                        "type": "string",
+                        "description": "Name of the family parameter (for set_parameter_value, add_formula, get_formula, get_family_parameter_info)"
+                    },
+                    "family_parameter_name": {
+                        "type": "string",
+                        "description": "Name of the family parameter to associate/dissociate (for associate_element_parameter, dissociate_element_parameter)"
+                    },
+                    "element_id": {
+                        "type": "integer",
+                        "description": "ElementId of an element in the family that has the parameter to bind (for associate_element_parameter). Can be a reference plane, reference point, nested family, or other family geometry."
+                    },
+                    "element_parameter_name": {
+                        "type": "string",
+                        "description": "Name of the parameter on the element to bind to the family parameter (for associate_element_parameter)"
+                    },
+                    "value": {
+                        "description": "Value to set for the parameter (for set_parameter_value). Type depends on parameter storage type: number for Double/Integer, string for String/Text, integer for ElementId",
+                        "oneOf": [
+                            {"type": "number"},
+                            {"type": "string"},
+                            {"type": "integer"}
+                        ]
+                    },
+                    "formula": {
+                        "type": "string",
+                        "description": "Formula to assign to the parameter (for add_formula). Example: 'Width * 2', 'Height + 10 mm'"
+                    }
+                },
+                "required": ["operation"]
+            }
+        ),
+        Tool(
+            name="application_document_tool",
+            description="Create new Revit documents from templates using the Application class. Operations: create new family documents (.rft templates) or new project documents (.rte/.rvt templates). This opens a new document in Revit.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Document creation operation",
+                        "enum": ["new_family_document", "new_project_document"]
+                    },
+                    "template_path": {
+                        "type": "string",
+                        "description": "Path to the template file. For families: provide just the filename (e.g., 'Metric Generic Model.rft') to search in C:\\ProgramData\\Autodesk\\RVT 2026\\Family Templates, or provide full path. For projects: provide just the filename (e.g., 'Commercial-Default.rte') to search in C:\\ProgramData\\Autodesk\\RVT 2026\\Templates, or provide full path. Template extensions: .rft or .rfa for families, .rte or .rvt for projects."
+                    }
+                },
+                "required": ["operation", "template_path"]
             }
         ),
         Tool(
@@ -3080,6 +3049,84 @@ async def list_tools() -> list[Tool]:
                         "type": "number",
                         "description": "Line end Z coordinate for line placement method",
                         "default": 0
+                    }
+                },
+                "required": ["operation"]
+            }
+        ),
+        Tool(
+            name="load_family_tool",
+            description="Load a Revit family (.rfa file) into the current project using Document.LoadFamily. Optionally save the file path to a text file for future reference and tracking of loaded families.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Full path to the .rfa family file to load. Example: 'C:\\Families\\Door.rfa'"
+                    },
+                    "save_path_to_file": {
+                        "type": "boolean",
+                        "description": "If true, saves the family file path to a text file for future reference",
+                        "default": False
+                    },
+                    "path_storage_file": {
+                        "type": "string",
+                        "description": "Optional: Custom path to the text file where family paths should be stored. If not provided and save_path_to_file is true, will use 'LoadedFamilies.txt' in the project directory or temp folder."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        ),
+        Tool(
+            name="divided_surface_tool",
+            description="Create and manage divided surfaces on form faces in conceptual mass or adaptive family documents. Divided surfaces allow creating parametric grid patterns on form geometry for panelization and pattern-based design. Only works in family (.rfa) documents.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": "Divided surface operation to perform",
+                        "enum": ["create_divided_surface", "set_uv_divisions", "set_grid_properties", "get_divided_surfaces", "get_forms"]
+                    },
+                    "form_id": {
+                        "type": "integer",
+                        "description": "Element ID of the Form element to create divided surface on (for create_divided_surface)"
+                    },
+                    "face_index": {
+                        "type": "integer",
+                        "description": "Index of the face on the form (0-based). Use get_forms to see faceCount for each form.",
+                        "default": 0
+                    },
+                    "divided_surface_id": {
+                        "type": "integer",
+                        "description": "Element ID of the divided surface to modify (for set_uv_divisions or set_grid_properties)"
+                    },
+                    "u_divisions": {
+                        "type": "integer",
+                        "description": "Number of divisions in U direction (for set_uv_divisions)",
+                        "default": 10
+                    },
+                    "v_divisions": {
+                        "type": "integer",
+                        "description": "Number of divisions in V direction (for set_uv_divisions)",
+                        "default": 8
+                    },
+                    "show_nodes": {
+                        "type": "boolean",
+                        "description": "Show or hide intersecting grid nodes (for set_grid_properties)"
+                    },
+                    "u_grid_lines": {
+                        "type": "integer",
+                        "description": "Number of U grid lines (for set_grid_properties)"
+                    },
+                    "v_grid_lines": {
+                        "type": "integer",
+                        "description": "Number of V grid lines (for set_grid_properties)"
+                    },
+                    "justification": {
+                        "type": "string",
+                        "description": "Grid justification alignment (for set_grid_properties)",
+                        "enum": ["beginning", "start", "middle", "center", "end", "ending"]
                     }
                 },
                 "required": ["operation"]
@@ -4226,28 +4273,6 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
-        elif name == "ribbon_tool":
-            result = await revit.send_command("ribbon_tool", {
-                "operation": arguments.get("operation"),
-                "tab_name": arguments.get("tab_name"),
-                "panel_name": arguments.get("panel_name"),
-                "button_name": arguments.get("button_name"),
-                "button_text": arguments.get("button_text"),
-                "tooltip": arguments.get("tooltip"),
-                "long_description": arguments.get("long_description"),
-                "class_name": arguments.get("class_name"),
-                "sub_buttons": arguments.get("sub_buttons"),
-                "combo_items": arguments.get("combo_items"),
-                "combo_width": arguments.get("combo_width"),
-                "text_box_width": arguments.get("text_box_width"),
-                "text_box_prompt": arguments.get("text_box_prompt"),
-                "stacked_items": arguments.get("stacked_items"),
-                "large_image": arguments.get("large_image"),
-                "small_image": arguments.get("small_image"),
-                "image_folder": arguments.get("image_folder")
-            })
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-        
         elif name == "family_points_tool":
             result = await revit.send_command("family_points_tool", {
                 "operation": arguments.get("operation"),
@@ -4265,6 +4290,28 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 "is_reference_line": arguments.get("is_reference_line", False),
                 "curve_ids": arguments.get("curve_ids"),
                 "is_solid": arguments.get("is_solid", True)
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "family_manager_tool":
+            result = await revit.send_command("family_manager_tool", {
+                "operation": arguments.get("operation"),
+                "type_name": arguments.get("type_name"),
+                "old_name": arguments.get("old_name"),
+                "new_name": arguments.get("new_name"),
+                "parameter_name": arguments.get("parameter_name"),
+                "family_parameter_name": arguments.get("family_parameter_name"),
+                "element_id": arguments.get("element_id"),
+                "element_parameter_name": arguments.get("element_parameter_name"),
+                "value": arguments.get("value"),
+                "formula": arguments.get("formula")
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "application_document_tool":
+            result = await revit.send_command("application_document_tool", {
+                "operation": arguments.get("operation"),
+                "template_path": arguments.get("template_path")
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
@@ -4357,6 +4404,14 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         
+        elif name == "load_family_tool":
+            result = await revit.send_command("load_family_tool", {
+                "file_path": arguments.get("file_path"),
+                "save_path_to_file": arguments.get("save_path_to_file", False),
+                "path_storage_file": arguments.get("path_storage_file")
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
         elif name == "load_and_place_family":
             result = await revit.send_command("load_and_place_family", {
                 "operation": arguments.get("operation"),
@@ -4382,6 +4437,21 @@ async def call_tool(name: str, arguments: Any) -> Sequence[TextContent | ImageCo
                 "line_end_x": arguments.get("line_end_x", 10),
                 "line_end_y": arguments.get("line_end_y", 0),
                 "line_end_z": arguments.get("line_end_z", 0)
+            })
+            return [TextContent(type="text", text=json.dumps(result, indent=2))]
+        
+        elif name == "divided_surface_tool":
+            result = await revit.send_command("divided_surface_tool", {
+                "operation": arguments.get("operation"),
+                "form_id": arguments.get("form_id"),
+                "face_index": arguments.get("face_index", 0),
+                "divided_surface_id": arguments.get("divided_surface_id"),
+                "u_divisions": arguments.get("u_divisions", 10),
+                "v_divisions": arguments.get("v_divisions", 8),
+                "show_nodes": arguments.get("show_nodes"),
+                "u_grid_lines": arguments.get("u_grid_lines"),
+                "v_grid_lines": arguments.get("v_grid_lines"),
+                "justification": arguments.get("justification")
             })
             return [TextContent(type="text", text=json.dumps(result, indent=2))]
         

@@ -5,9 +5,9 @@ This guide will help you get the Revit MCP Server up and running quickly.
 ## Prerequisites Checklist
 
 - [ ] Windows 10/11
-- [ ] Python 3.10
+- [ ] Python 3.10 or higher installed
 - [ ] Autodesk Revit 2026 installed
-- [ ] Visual Studio 2019 or later (for building C# add-in, but it has been added to the folder structure)
+- [ ] Visual Studio 2019 or later (for building C# add-in)
 - [ ] Claude Desktop app installed
 
 ## Installation Steps
@@ -28,7 +28,7 @@ This will:
 - Copy add-in files to Revit folder
 - Create example configuration
 
-### 2. Build the Revit Add-in( Only in case dll is different or has not been copied to the Addins folder)
+### 2. Build the Revit Add-in
 
 ```bash
 # Open the C# project in Visual Studio
@@ -43,21 +43,21 @@ In Visual Studio:
 ### 3. Configure Claude Desktop
 
 Edit `%APPDATA%\Claude\claude_desktop_config.json`:
-Add to the config JSON file a command and an argument.
+
 ```json
 {
   "mcpServers": {
     "revit": {
-      "command": ""C:\\path\\to\\Revit2026-MCP\\venv\\Scripts\\python.exe",",
+      "command": "python",
       "args": [
-        "C:\\path\\to\\Revit2026-MCP\\revit_mcp_server.py"
+        "C:\\path\\to\\revit-mcp-server\\revit_mcp_server.py"
       ]
     }
   }
 }
 ```
 
-**Important:** Replace `C:\\path\\to\\Revit2026-MCP\\` with the actual path to your installation.
+**Important:** Replace `C:\\path\\to\\revit-mcp-server\\` with the actual path to your installation.
 
 ### 4. Start Everything
 
